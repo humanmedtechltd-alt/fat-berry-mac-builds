@@ -73,6 +73,42 @@ def inspect(root: Path, product: dict) -> dict:
     return row
 
 
+def inspect_windows(root: Path, product: dict) -> dict:
+    slug = product["slug"]
+    row = {"slug": slug, "name": product["name"], "platform": "windows", "status": "queued", "stage": "awaiting-runner"}
+    path = root / "output/windows" / slug / "status.json"
+    if not path.exists():
+        return row
+    status = json.loads(path.read_text())
+    if status.get("buildInputSha256") != product["buildInputSha256"]:
+        return row
+    for field in ("status", "stage", "runUrl", "updatedAt"):
+        if isinstance(status.get(field), str):
+            row[field] = status[field]
+    if row["status"] != "candidate":
+        return row
+    release = json.loads((path.parent / "release.json").read_text())
+    if (release.get("auditedBuildInputSha256") != product["buildInputSha256"]
+            or release.get("vst3Sha256") != product["original"]["vst3Sha256"]
+            or any(release.get(field) != product["original"][field] for field in
+                   ("slug", "productId", "version", "keygenProductId", "keygenPolicyId", "licensingClientCommit"))):
+        raise ValueError("Windows candidate differs from the audited product identity")
+    artifact = path.parent / "installer-win.exe"
+    stats = artifact.stat()
+    proof = {"inode": stats.st_ino, "mtimeNs": stats.st_mtime_ns, "size": stats.st_size, "sha256": release["sha256"]}
+    proof_path = path.parent / ".verified.json"
+    prior = json.loads(proof_path.read_text()) if proof_path.exists() else None
+    if stats.st_size != release["sizeBytes"]:
+        raise ValueError("Windows candidate size mismatch")
+    if proof != prior:
+        with artifact.open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != release["sha256"]:
+                raise ValueError("Windows candidate checksum mismatch")
+        atomic_json(proof_path, proof)
+    row.update(status="candidate-verified", stage="release-acceptance", validation=release.get("validation", {}))
+    return row
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
@@ -86,20 +122,30 @@ def main() -> None:
             if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", product["slug"]):
                 raise ValueError("Invalid configured slug")
             try:
-                rows.append(inspect(root, product))
+                rows.append({**inspect(root, product), "platform": "macos"})
             except Exception as error:
                 rows.append({"slug": product["slug"], "name": product["name"], "status": "rejected",
-                             "stage": str(error)})
+                             "platform": "macos", "stage": str(error)})
+        windows_index = root / "input/windows-index.json"
+        if windows_index.exists():
+            windows = json.loads(windows_index.read_text())
+            for product in windows["products"]:
+                try:
+                    rows.append(inspect_windows(root, product))
+                except Exception as error:
+                    rows.append({"slug": product["slug"], "name": product["name"], "status": "rejected",
+                                 "platform": "windows", "stage": str(error)})
         counts = {state: sum(r["status"] == state for r in rows) for state in sorted({r["status"] for r in rows})}
         report = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                  "expectedProducts": 52, "configuredProducts": len(rows), "counts": counts,
+                  "expectedProducts": 52, "configuredProducts": len({r['slug'] for r in rows}),
+                  "platformCoverage": {platform: sum(r.get("platform") == platform for r in rows) for platform in ("windows", "macos")}, "counts": counts,
                   "products": rows, "publication": "Only candidates passing the complete release acceptance gate may be published."}
         atomic_json(root / "report.json", report)
         lines = ["# Fat Berry unattended installer queue", "", f"Updated: {report['updatedAt']}", "",
                  "Existing VPS; standard public GitHub Actions Mac runners; no model polling.", "",
-                 f"Configured: {len(rows)}/52. " + ", ".join(f"{k}: {v}" for k, v in counts.items()), ""]
+                 f"Configured Windows: {report['platformCoverage']['windows']}/52; Mac: {report['platformCoverage']['macos']}/52. " + ", ".join(f"{k}: {v}" for k, v in counts.items()), ""]
         for row in rows:
-            lines.append(f"- **{row['name']}**: {row['status']} — {row['stage']}" +
+            lines.append(f"- **{row['name']} ({row['platform']})**: {row['status']} — {row['stage']}" +
                          (f" ([build]({row['runUrl']}))" if row.get("runUrl") else ""))
         temporary = root / "report.md.next"
         temporary.write_text("\n".join(lines) + "\n")

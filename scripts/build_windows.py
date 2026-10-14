@@ -114,11 +114,15 @@ def main() -> None:
                          define("Vst3BundleName", product["vst3Bundle"]), define("OutputSlug", slug),
                          define("FbKitDir", str(kit)), define("FbDesignDir", str(design))]
                 lines += ["[Setup]", *product["setup"], f"OutputDir={final.parent}", "OutputBaseFilename=installer-win",
-                          "Compression=lzma2", "SolidCompression=yes", "PrivilegesRequired=admin", "MinVersion=10.0"]
+                          "Compression=lzma2", "SolidCompression=yes", "PrivilegesRequired=admin", f"MinVersion={product['minimumWindows']}"]
                 lines += [f'#include "{kit / "FatBerryWizard.isi"}"', "[Files]"]
                 for entry in product["fileEntries"]:
                     lines.append(entry.replace("@PAYLOAD@", str(payload)))
                 lines.extend(product["additionalSections"])
+                # Keep product upgrade, staging, recovery and uninstall behavior.
+                # Decompiled file listings do not contain the original Pascal code.
+                if product["installerCode"]:
+                    lines.append(product["installerCode"])
                 if product["runtimeImports"]:
                     lines += [define("FatBerryVcRedistPath", str(redist)), define("FatBerryVcRedistSha256", index["runtime"]["sha256"])]
                     lines += [f"#define FatBerryVc{name} {value}" for name, value in zip(("Major", "Minor", "Build", "Revision"), index["runtime"]["version"].split("."))]

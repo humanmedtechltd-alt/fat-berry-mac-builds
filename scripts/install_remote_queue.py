@@ -34,6 +34,7 @@ Description=React to Fat Berry runner status uploads
 [Path]
 PathModified={ROOT}/events.log
 PathModified={ROOT}/input/index.json
+PathModified={ROOT}/input/windows-index.json
 Unit=fatberry-installer-report.service
 
 [Install]

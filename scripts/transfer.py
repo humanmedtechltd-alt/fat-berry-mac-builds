@@ -11,6 +11,7 @@ import shlex
 import sys
 import json
 import time
+import shutil
 
 
 def main() -> None:
@@ -41,6 +42,8 @@ def main() -> None:
                     size += len(block)
                     if size > 60 * 1024**3:
                         raise ValueError("Object exceeds transfer limit")
+                    if size % (32 * 1024**2) < len(block) and shutil.disk_usage(root).free < 512 * 1024**2:
+                        raise ValueError("Insufficient disk reserve; production storage protected")
                     destination.write(block)
             os.replace(temporary, path)
             if path.name == "status.json":
