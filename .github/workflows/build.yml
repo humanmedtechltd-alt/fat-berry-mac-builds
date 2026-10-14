@@ -1,0 +1,51 @@
+name: Private-source Mac installers on free standard runners
+
+on:
+  workflow_dispatch:
+    inputs:
+      products:
+        description: JSON array of product slugs from the private batch index
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fatberry-macos-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        slug: ${{ fromJSON(inputs.products) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up restricted private batch transfer
+        env:
+          RUNNER_SSH_KEY: ${{ secrets.RUNNER_SSH_KEY }}
+          RUNNER_KNOWN_HOSTS: ${{ secrets.RUNNER_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$RUNNER_SSH_KEY" > "$HOME/.ssh/fatberry-build"
+          printf '%s\n' "$RUNNER_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+      - name: Build and validate private source without exposing compiler logs
+        env:
+          PRODUCT_SLUG: ${{ matrix.slug }}
+          RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+        shell: bash
+        run: python3 scripts/build_product.py "$PRODUCT_SLUG"
+      - name: Remove private checkout and SSH credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$HOME/.ssh/fatberry-build"
+          rm -rf work
