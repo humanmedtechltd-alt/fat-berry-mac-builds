@@ -1,0 +1,58 @@
+name: Private Windows installer corrections on free standard runners
+on:
+  workflow_dispatch:
+    inputs:
+      products:
+        description: JSON array of product slugs from the private Windows index
+        required: true
+        type: string
+      index_sha256:
+        description: SHA-256 of the immutable private Windows index
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: fatberry-windows-installer-release
+  cancel-in-progress: false
+jobs:
+  package:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slug: ${{ fromJSON(inputs.products) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure restricted private transfer
+        env:
+          RUNNER_SSH_KEY: ${{ secrets.RUNNER_SSH_KEY }}
+          RUNNER_KNOWN_HOSTS: ${{ secrets.RUNNER_KNOWN_HOSTS }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sshDir = Join-Path $HOME '.ssh'
+          New-Item -ItemType Directory -Force -Path $sshDir | Out-Null
+          [IO.File]::WriteAllText((Join-Path $sshDir 'fatberry-build'), $env:RUNNER_SSH_KEY + "`n")
+          [IO.File]::WriteAllText((Join-Path $sshDir 'known_hosts'), $env:RUNNER_KNOWN_HOSTS + "`n")
+          icacls (Join-Path $sshDir 'fatberry-build') /inheritance:r /grant:r "${env:USERNAME}:(R)" | Out-Null
+      - name: Correct and verify installer privately
+        env:
+          PRODUCT_SLUG: ${{ matrix.slug }}
+          INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
+          RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+        shell: pwsh
+        run: python scripts/build_windows.py $env:PRODUCT_SLUG
+      - name: Remove private files and transfer key
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $key = Join-Path $HOME '.ssh/fatberry-build'
+          if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Force }
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+          $work = [IO.Path]::GetFullPath((Join-Path $workspace 'work'))
+          if (!$work.StartsWith($workspace + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe cleanup target' }
+          if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
