@@ -20,7 +20,7 @@ jobs:
           mkdir -p work/payload/usr/local/libexec/fatberry-preflight
           printf 'int main(void) { return 0; }\n' > work/preflight.c
           xcrun clang -arch arm64 -arch x86_64 work/preflight.c -o work/payload/usr/local/libexec/fatberry-preflight/check
-          lipo -verify_arch arm64 x86_64 work/payload/usr/local/libexec/fatberry-preflight/check
+          lipo work/payload/usr/local/libexec/fatberry-preflight/check -verify_arch arm64 x86_64
           codesign --force --timestamp=none --sign - work/payload/usr/local/libexec/fatberry-preflight/check
           codesign --verify --strict work/payload/usr/local/libexec/fatberry-preflight/check
           work/payload/usr/local/libexec/fatberry-preflight/check
