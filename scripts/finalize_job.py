@@ -4,7 +4,7 @@ import datetime
 import json
 from pathlib import Path
 import sys
-from build_product import transfer
+from build_product import transfer, output_prefix
 
 root = Path("work")
 if root.is_dir():
@@ -12,7 +12,7 @@ if root.is_dir():
     if status_path.is_file():
         status = json.loads(status_path.read_text())
         slug = status["slug"]
-        prefix = f"output/windows/{slug}" if status.get("platform") == "windows" else f"output/{slug}"
+        prefix = output_prefix(status.get("platform", "macos"), slug)
         if status.get("status") == "running":
             status.update(status="interrupted", updatedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
             status_path.write_text(json.dumps(status) + "\n")

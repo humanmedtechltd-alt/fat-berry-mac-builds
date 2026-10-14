@@ -43,6 +43,7 @@ jobs:
           PRODUCT_SLUG: ${{ matrix.slug }}
           INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
           RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+          FATBERRY_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         shell: pwsh
         run: python scripts/build_windows.py $env:PRODUCT_SLUG
       - name: Save private diagnostics even after interruption

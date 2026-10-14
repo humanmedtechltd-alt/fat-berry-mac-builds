@@ -13,16 +13,33 @@ import tarfile
 import urllib.request
 import zipfile
 import datetime
+import signal
+import time
 
 SSH = ["ssh", "-i", str(Path.home() / ".ssh/fatberry-build"), "-o", "BatchMode=yes",
        "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=20", os.environ["RUNNER_SSH_HOST"]]
 
 
+def output_prefix(platform: str, slug: str) -> str:
+    run_id = os.environ["GITHUB_RUN_ID"]
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    if not run_id.isdigit() or not attempt.isdigit():
+        raise ValueError("Invalid GitHub run identity")
+    return f"output/runs/{run_id}/{attempt}/{platform}/{slug}"
+
+
 def transfer(operation: str, remote: str, local: Path) -> None:
     local.parent.mkdir(parents=True, exist_ok=True)
-    with local.open("wb" if operation == "get" else "rb") as stream:
-        subprocess.run(SSH + [f"{operation} {remote}"], check=True,
-                       **({"stdout": stream} if operation == "get" else {"stdin": stream}))
+    for attempt in range(3):
+        try:
+            with local.open("wb" if operation == "get" else "rb") as stream:
+                subprocess.run(SSH + [f"{operation} {remote}"], check=True, timeout=1800,
+                               **({"stdout": stream} if operation == "get" else {"stdin": stream}))
+            return
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            if attempt == 2:
+                raise
+            time.sleep(2 ** attempt)
 
 
 def digest(path: Path) -> str:
@@ -38,13 +55,14 @@ def main() -> None:
     root.mkdir()
     log = root / "build.log"
     status = {"slug": slug, "status": "running", "stage": "input",
+              "platform": "macos",
               "runUrl": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
               "runAttempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1")}
     def checkpoint(stage: str, state: str = "running") -> None:
         status.update(stage=stage, status=state, updatedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
         status_file = root / "status.json"
         status_file.write_text(json.dumps(status) + "\n")
-        transfer("put", f"output/{slug}/status.json", status_file)
+        transfer("put", f"{output_prefix('macos', slug)}/status.json", status_file)
     try:
         index_hash = os.environ["INPUT_INDEX_SHA256"]
         if not re.fullmatch(r"[0-9a-f]{64}", index_hash):
@@ -59,7 +77,15 @@ def main() -> None:
         with log.open("w") as output:
             def run(*command: str, cwd: Path | None = None) -> None:
                 limit = 2700 if status["stage"] == "compile" else 2400 if status["stage"] == "validate-and-package" else 1200
-                subprocess.run(command, cwd=cwd, stdout=output, stderr=subprocess.STDOUT, check=True, timeout=limit)
+                process = subprocess.Popen(command, cwd=cwd, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+                try:
+                    result = process.wait(timeout=limit)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+                    raise
+                if result:
+                    raise subprocess.CalledProcessError(result, command)
 
             for item in [*index["dependencies"], *product["archives"]]:
                 archive = root / item["file"]
@@ -107,11 +133,24 @@ def main() -> None:
                 if len(found) != 1:
                     raise ValueError("Expected exactly one fresh format bundle")
                 return found[0]
+            checkpoint("save-compiled-bundles")
+            compiled = root / "compiled.tar.gz"
+            with tarfile.open(compiled, "w:gz", compresslevel=1) as archive:
+                for name in (product["vst3Bundle"], product["auBundle"]):
+                    archive.add(bundle(name), arcname=name)
+            transfer("put", f"{output_prefix('macos', slug)}/compiled.tar.gz", compiled)
+            receipt = root / "compiled.json"
+            receipt.write_text(json.dumps({"sourceSnapshot": product["sourceSnapshot"],
+                "inputIndexSha256": index_hash, "sha256": digest(compiled), "bytes": compiled.stat().st_size,
+                "dependencies": index["dependencies"], "product": product}) + "\n")
+            transfer("put", f"{output_prefix('macos', slug)}/compiled.json", receipt)
+            compiled.unlink()
             checkpoint("validate-and-package")
             validator = next(p for p in (root / "pluginval").rglob("pluginval") if p.is_file())
             run("chmod", "+x", str(validator))
             run("xattr", "-cr", str(root / "pluginval"))
             product_file = root / "product.json"
+            product.update(inputIndexSha256=index_hash, dependencySnapshots={d["directory"]: d.get("sourceSnapshot", d["sha256"]) for d in index["dependencies"]})
             product_file.write_text(json.dumps(product))
             run(sys.executable, str(tooling / "tools/package_staged_macos.py"),
                 "--product", str(product_file), "--vst3", str(bundle(product["vst3Bundle"])),
@@ -119,7 +158,7 @@ def main() -> None:
             checkpoint("upload")
             for path in (root / "output").iterdir():
                 if path.is_file():
-                    transfer("put", f"output/{slug}/{path.name}", path)
+                    transfer("put", f"{output_prefix('macos', slug)}/{path.name}", path)
             checkpoint("complete", "passed")
     except Exception as error:
         # The public log never receives compiler output or private source snippets.
@@ -128,7 +167,7 @@ def main() -> None:
         status["status"] = "failed"
     finally:
         if log.exists():
-            transfer("put", f"output/{slug}/build.log", log)
+            transfer("put", f"{output_prefix('macos', slug)}/build.log", log)
         checkpoint(status["stage"], status["status"])
     print(f"{slug}: {status['status']} ({status['stage']}); detailed diagnostics stored privately")
     if status["status"] != "passed":

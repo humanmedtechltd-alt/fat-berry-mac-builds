@@ -13,7 +13,7 @@ import sys
 import tarfile
 import zipfile
 
-from build_product import transfer, digest
+from build_product import transfer, digest, output_prefix
 
 
 def main() -> None:
@@ -29,7 +29,7 @@ def main() -> None:
         status.update(stage=stage, status=state, updatedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
         path = root / "status.json"
         path.write_text(json.dumps(status) + "\n")
-        transfer("put", f"output/windows/{slug}/status.json", path)
+        transfer("put", f"{output_prefix('windows', slug)}/status.json", path)
     try:
         index_hash = os.environ["INPUT_INDEX_SHA256"]
         if not re.fullmatch(r"[a-f0-9]{64}", index_hash):
@@ -148,15 +148,19 @@ def main() -> None:
             if product["runtimeImports"] and product["needsRepackage"]:
                 if digest(verify / "{tmp}/FatBerry-VC_redist.x64.exe") != index["runtime"]["sha256"]:
                     raise ValueError("Final installer lacks the verified runtime")
+            checkpoint("install-upgrade-scan-uninstall")
+            from test_windows_install import validate_install
+            validator = next(path for path in (root / "pluginval").rglob("pluginval.exe") if path.is_file())
+            installation = validate_install(product, final, root, output, validator)
             record = {**product["original"], "sizeBytes": final.stat().st_size, "sha256": digest(final),
                       "auditedBuildInputSha256": product["buildInputSha256"], "payloadFiles": list(expected.values()),
                       "validation": {"archiveIntegrity": "passed", "payloadHashes": "passed", "moduleHash": "passed",
-                                     "currentBuildInputsMatch": True, "cleanInstall": "pending", "runtimeBootstrap": "pending"},
+                                     "currentBuildInputsMatch": True, **installation, "activation": "pending"},
                       "runtimeIncluded": bool(product["runtimeImports"])}
             (final.parent / "release.json").write_text(json.dumps(record, indent=2) + "\n")
             checkpoint("upload")
             for file in final.parent.iterdir():
-                transfer("put", f"output/windows/{slug}/{file.name}", file)
+                transfer("put", f"{output_prefix('windows', slug)}/{file.name}", file)
             checkpoint("release-acceptance", "candidate")
     except Exception as error:
         with log.open("a", encoding="utf-8") as output:
@@ -164,7 +168,7 @@ def main() -> None:
         status["status"] = "failed"
     finally:
         if log.exists():
-            transfer("put", f"output/windows/{slug}/build.log", log)
+            transfer("put", f"{output_prefix('windows', slug)}/build.log", log)
         checkpoint(status["stage"], status["status"])
     print(f"{slug}: {status['status']} ({status['stage']}); detailed diagnostics remain private")
     if status["status"] == "failed":

@@ -8,7 +8,6 @@ trusted publication gate; a compiler success alone is never a release.
 from __future__ import annotations
 import argparse
 import datetime
-import fcntl
 import hashlib
 import json
 import os
@@ -23,13 +22,21 @@ def atomic_json(path: Path, value: dict) -> None:
     os.replace(temporary, path)
 
 
+def status_path(root: Path, platform: str, slug: str) -> Path:
+    paths = [p for p in (root / "output/runs").glob(f"*/*/{platform}/{slug}/status.json")
+             if p.parts[-5].isdigit() and p.parts[-4].isdigit()]
+    if paths:
+        return max(paths, key=lambda p: (int(p.parts[-5]), int(p.parts[-4])))
+    return root / "output" / ("windows" if platform == "windows" else "") / slug / "status.json"
+
+
 def inspect(root: Path, product: dict) -> dict:
     slug = product["slug"]
     row = {"slug": slug, "name": product["name"], "status": "queued", "stage": "awaiting-runner"}
     if product.get("blockedReason"):
         row.update(status="blocked", stage=product["blockedReason"])
         return row
-    path = root / "output" / slug / "status.json"
+    path = status_path(root, "macos", slug)
     if not path.exists():
         return row
     status = json.loads(path.read_text())
@@ -41,7 +48,7 @@ def inspect(root: Path, product: dict) -> dict:
             row[field] = status[field]
     if row["status"] != "passed":
         return row
-    release_path = root / "output" / slug / "release.json"
+    release_path = path.parent / "release.json"
     if not release_path.is_file():
         raise ValueError("Successful job did not upload a release record")
     release = json.loads(release_path.read_text())
@@ -76,7 +83,7 @@ def inspect(root: Path, product: dict) -> dict:
 def inspect_windows(root: Path, product: dict) -> dict:
     slug = product["slug"]
     row = {"slug": slug, "name": product["name"], "platform": "windows", "status": "queued", "stage": "awaiting-runner"}
-    path = root / "output/windows" / slug / "status.json"
+    path = status_path(root, "windows", slug)
     if not path.exists():
         return row
     status = json.loads(path.read_text())
@@ -110,6 +117,7 @@ def inspect_windows(root: Path, product: dict) -> dict:
 
 
 def main() -> None:
+    import fcntl
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
     args = parser.parse_args()
