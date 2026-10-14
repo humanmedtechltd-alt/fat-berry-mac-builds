@@ -121,6 +121,7 @@ def main() -> None:
                          f"-DFATBERRY_LICENSING_API_ORIGIN={index['licensingApiOrigin']}",
                          f"-DFATBERRY_SODIUM_MACOS_SHA256={index['sodiumSha256']}",
                          f"-DFATBERRY_LICENSING_SOURCE_DIR={client}",
+                         "-DFATBERRY_LICENSING_SNAPSHOT_SHA256=" + next(d["sourceSnapshot"] for d in index["dependencies"] if d["directory"] == "fat-berry-licensing-client"),
                          f"-DFATBERRY_RELEASE_TOOLING_DIR={tooling}",
                          "-DSMTG_RUN_VST_VALIDATOR=OFF", "-DSMTG_CREATE_PLUGIN_LINK=OFF",
                          *[arg.replace("{root}", str(root)) for arg in product["cmakeArguments"]]]

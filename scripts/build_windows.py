@@ -167,6 +167,9 @@ def main() -> None:
             output.write(f"\n{type(error).__name__}: {error}\n")
         status["status"] = "failed"
     finally:
+        for diagnostic in root.glob("*.log"):
+            if diagnostic.name != "build.log":
+                transfer("put", f"{output_prefix('windows', slug)}/{diagnostic.name}", diagnostic)
         if log.exists():
             transfer("put", f"{output_prefix('windows', slug)}/build.log", log)
         checkpoint(status["stage"], status["status"])
