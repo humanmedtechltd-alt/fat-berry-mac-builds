@@ -7,6 +7,10 @@ on:
         description: JSON array of product slugs from the private batch index
         required: true
         type: string
+      index_sha256:
+        description: SHA-256 of the immutable private input index
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -41,6 +45,7 @@ jobs:
         env:
           PRODUCT_SLUG: ${{ matrix.slug }}
           RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+          INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
         shell: bash
         run: python3 scripts/build_product.py "$PRODUCT_SLUG"
       - name: Remove private checkout and SSH credentials

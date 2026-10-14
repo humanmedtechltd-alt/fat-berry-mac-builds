@@ -12,6 +12,7 @@ import sys
 import tarfile
 import urllib.request
 import zipfile
+import datetime
 
 SSH = ["ssh", "-i", str(Path.home() / ".ssh/fatberry-build"), "-o", "BatchMode=yes",
        "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=20", os.environ["RUNNER_SSH_HOST"]]
@@ -36,11 +37,25 @@ def main() -> None:
     root = Path("work").resolve()
     root.mkdir()
     log = root / "build.log"
-    status = {"slug": slug, "status": "failed", "stage": "input"}
+    status = {"slug": slug, "status": "running", "stage": "input",
+              "runUrl": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "runAttempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1")}
+    def checkpoint(stage: str, state: str = "running") -> None:
+        status.update(stage=stage, status=state, updatedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
+        status_file = root / "status.json"
+        status_file.write_text(json.dumps(status) + "\n")
+        transfer("put", f"output/{slug}/status.json", status_file)
     try:
-        transfer("get", "input/index.json", root / "index.json")
+        index_hash = os.environ["INPUT_INDEX_SHA256"]
+        if not re.fullmatch(r"[0-9a-f]{64}", index_hash):
+            raise ValueError("A pinned private input index is required")
+        transfer("get", f"input/index-{index_hash}.json", root / "index.json")
+        if digest(root / "index.json") != index_hash:
+            raise ValueError("Private input index hash mismatch")
         index = json.loads((root / "index.json").read_text())
         product = next(p for p in index["products"] if p["slug"] == slug)
+        status.update(sourceSnapshot=product["sourceSnapshot"], inputIndexSha256=index_hash)
+        checkpoint("input")
         with log.open("w") as output:
             def run(*command: str, cwd: Path | None = None) -> None:
                 subprocess.run(command, cwd=cwd, stdout=output, stderr=subprocess.STDOUT, check=True)
@@ -59,7 +74,7 @@ def main() -> None:
                     with tarfile.open(archive) as source:
                         source.extractall(destination, filter="data")
                 archive.unlink()
-            status["stage"] = "tools"
+            checkpoint("tools")
             run(sys.executable, "-m", "venv", str(root / "tools"))
             run(str(root / "tools/bin/pip"), "install", "cmake==4.2.3", "ninja")
             os.environ["PATH"] = str(root / "tools/bin") + os.pathsep + os.environ["PATH"]
@@ -68,19 +83,22 @@ def main() -> None:
             build = root / "build"
             client = root / "fat-berry-licensing-client"
             tooling = root / "fat-berry-release-tooling"
-            status["stage"] = "configure"
+            checkpoint("configure")
             configure = ["cmake", "-S", str(source), "-B", str(build), "-G", "Xcode",
                          "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64", "-DCMAKE_BUILD_TYPE=Release",
                          f"-DCMAKE_OSX_DEPLOYMENT_TARGET={product['minimumOS']}",
                          "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY=-", "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO",
                          "-DFATBERRY_PRODUCTION_BUILD=ON", "-DFATBERRY_LICENSING_BUILD_TESTS=OFF",
+                         f"-DFATBERRY_KEYGEN_PRODUCT_ID={product['keygenProductId']}",
+                         f"-DFATBERRY_KEYGEN_PUBLIC_KEY={index['keygenPublicKey']}",
+                         f"-DFATBERRY_LICENSING_API_ORIGIN={index['licensingApiOrigin']}",
                          f"-DFATBERRY_SODIUM_MACOS_SHA256={index['sodiumSha256']}",
                          f"-DFATBERRY_LICENSING_SOURCE_DIR={client}",
                          f"-DFATBERRY_RELEASE_TOOLING_DIR={tooling}",
                          "-DSMTG_RUN_VST_VALIDATOR=OFF", "-DSMTG_CREATE_PLUGIN_LINK=OFF",
                          *[arg.replace("{root}", str(root)) for arg in product["cmakeArguments"]]]
             run(*configure)
-            status["stage"] = "compile"
+            checkpoint("compile")
             run("cmake", "--build", str(build), "--config", "Release", "--parallel", "3",
                 "--target", product["vst3Target"], product["auTarget"])
             def bundle(name: str) -> Path:
@@ -88,7 +106,7 @@ def main() -> None:
                 if len(found) != 1:
                     raise ValueError("Expected exactly one fresh format bundle")
                 return found[0]
-            status["stage"] = "validate-and-package"
+            checkpoint("validate-and-package")
             validator = next(p for p in (root / "pluginval").rglob("pluginval") if p.is_file())
             run("chmod", "+x", str(validator))
             run("xattr", "-cr", str(root / "pluginval"))
@@ -97,21 +115,20 @@ def main() -> None:
             run(sys.executable, str(tooling / "tools/package_staged_macos.py"),
                 "--product", str(product_file), "--vst3", str(bundle(product["vst3Bundle"])),
                 "--au", str(bundle(product["auBundle"])), "--pluginval", str(validator), "--output", str(root / "output"))
-            status["stage"] = "upload"
+            checkpoint("upload")
             for path in (root / "output").iterdir():
                 if path.is_file():
                     transfer("put", f"output/{slug}/{path.name}", path)
-            status.update(status="passed", stage="complete")
+            checkpoint("complete", "passed")
     except Exception as error:
         # The public log never receives compiler output or private source snippets.
         with log.open("a") as stream:
             stream.write(f"\n{type(error).__name__}: {error}\n")
+        status["status"] = "failed"
     finally:
-        status_file = root / "status.json"
-        status_file.write_text(json.dumps(status) + "\n")
-        transfer("put", f"output/{slug}/status.json", status_file)
         if log.exists():
             transfer("put", f"output/{slug}/build.log", log)
+        checkpoint(status["stage"], status["status"])
     print(f"{slug}: {status['status']} ({status['stage']}); detailed diagnostics stored privately")
     if status["status"] != "passed":
         raise SystemExit(1)

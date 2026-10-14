@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import shlex
 import sys
+import json
+import time
 
 
 def main() -> None:
@@ -41,6 +43,12 @@ def main() -> None:
                         raise ValueError("Object exceeds transfer limit")
                     destination.write(block)
             os.replace(temporary, path)
+            if path.name == "status.json":
+                # systemd.path wakes the reconciler only when a runner reports.
+                # It has no GitHub token and never invokes a language model.
+                event = json.dumps({"path": relative, "receivedAt": int(time.time())}) + "\n"
+                with (root / "events.log").open("a") as events:
+                    events.write(event)
         finally:
             temporary.unlink(missing_ok=True)
 
