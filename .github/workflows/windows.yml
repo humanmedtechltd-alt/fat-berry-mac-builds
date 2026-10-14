@@ -45,6 +45,11 @@ jobs:
           RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
         shell: pwsh
         run: python scripts/build_windows.py $env:PRODUCT_SLUG
+      - name: Save private diagnostics even after interruption
+        if: always()
+        env:
+          RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+        run: python scripts/finalize_job.py
       - name: Remove private files and transfer key
         if: always()
         shell: pwsh

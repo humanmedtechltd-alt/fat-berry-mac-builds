@@ -58,7 +58,8 @@ def main() -> None:
         checkpoint("input")
         with log.open("w") as output:
             def run(*command: str, cwd: Path | None = None) -> None:
-                subprocess.run(command, cwd=cwd, stdout=output, stderr=subprocess.STDOUT, check=True)
+                limit = 2700 if status["stage"] == "compile" else 2400 if status["stage"] == "validate-and-package" else 1200
+                subprocess.run(command, cwd=cwd, stdout=output, stderr=subprocess.STDOUT, check=True, timeout=limit)
 
             for item in [*index["dependencies"], *product["archives"]]:
                 archive = root / item["file"]

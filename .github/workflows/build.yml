@@ -22,7 +22,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 120
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -48,6 +48,11 @@ jobs:
           INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
         shell: bash
         run: python3 scripts/build_product.py "$PRODUCT_SLUG"
+      - name: Save private diagnostics even after interruption
+        if: always()
+        env:
+          RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+        run: python3 scripts/finalize_job.py
       - name: Remove private checkout and SSH credentials
         if: always()
         shell: bash
