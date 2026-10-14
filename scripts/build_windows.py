@@ -89,7 +89,9 @@ def main() -> None:
             redist = root / "tools/VC_redist.x64.exe"
             if digest(redist) != index["runtime"]["sha256"]:
                 raise ValueError("Microsoft runtime hash mismatch")
-            powershell = "powershell.exe"
+            # Hosted runners launch in PowerShell 7; use the same runtime so an
+            # inherited PSModulePath cannot load PS7 modules into PowerShell 5.
+            powershell = "pwsh.exe"
             run(powershell, "-NoProfile", "-Command",
                 "$s=Get-AuthenticodeSignature -LiteralPath '" + str(redist).replace("'", "''") +
                 "'; if($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'Microsoft Corporation'){exit 1}")
