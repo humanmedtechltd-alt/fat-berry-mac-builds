@@ -1,0 +1,35 @@
+name: Free standard Mac runner preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Verify native toolchain, both architectures, signing and packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          mkdir -p work/payload/usr/local/libexec/fatberry-preflight
+          printf 'int main(void) { return 0; }\n' > work/preflight.c
+          xcrun clang -arch arm64 -arch x86_64 work/preflight.c -o work/payload/usr/local/libexec/fatberry-preflight/check
+          lipo -verify_arch arm64 x86_64 work/payload/usr/local/libexec/fatberry-preflight/check
+          codesign --force --timestamp=none --sign - work/payload/usr/local/libexec/fatberry-preflight/check
+          codesign --verify --strict work/payload/usr/local/libexec/fatberry-preflight/check
+          work/payload/usr/local/libexec/fatberry-preflight/check
+          if ! arch -x86_64 work/payload/usr/local/libexec/fatberry-preflight/check; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+            arch -x86_64 work/payload/usr/local/libexec/fatberry-preflight/check
+          fi
+          mkdir -p output
+          pkgbuild --root work/payload --identifier com.fatberry.build-preflight --version 1.0.0 output/preflight.pkg
+          hdiutil create -quiet -volname FatBerryPreflight -srcfolder output -format UDZO work/preflight.dmg
+          test -s work/preflight.dmg
+          echo 'PASS: free standard Mac runner, universal executable, both slices, ad-hoc signature, PKG and DMG.'
