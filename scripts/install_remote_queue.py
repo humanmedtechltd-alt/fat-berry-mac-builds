@@ -14,11 +14,13 @@ def main() -> None:
     service = f"""[Unit]
 Description=Fat Berry installer queue report (event driven)
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
 User=ubuntu
 UMask=0077
+ExecStartPre=/usr/bin/sleep 2
 ExecStart=/usr/bin/python3 {ROOT}/reconcile.py {ROOT}
 NoNewPrivileges=true
 PrivateTmp=true
@@ -52,7 +54,9 @@ for name,content in files.items():
 root=pathlib.Path('/home/ubuntu/fatberry-mac-builds/release-20261014')
 (root/'events.log').touch(exist_ok=True);os.chown(root/'events.log',1000,1000)
 subprocess.run(['systemctl','daemon-reload'],check=True)
+subprocess.run(['systemctl','reset-failed','fatberry-installer-report.path','fatberry-installer-report.service'],check=True)
 subprocess.run(['systemctl','enable','--now','fatberry-installer-report.path'],check=True)
+subprocess.run(['systemctl','restart','fatberry-installer-report.path'],check=True)
 subprocess.run(['systemctl','start','fatberry-installer-report.service'],check=True)
 print('Event-driven private reporter installed and started')
 """

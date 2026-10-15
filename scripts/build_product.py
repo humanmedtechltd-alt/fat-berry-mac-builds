@@ -87,7 +87,7 @@ def main() -> None:
                 if result:
                     raise subprocess.CalledProcessError(result, command)
 
-            for item in [*index["dependencies"], *product["archives"]]:
+            for item in [*index["dependencies"], *product.get("dependencies", []), *product["archives"]]:
                 archive = root / item["file"]
                 transfer("get", f"input/{item['file']}", archive)
                 if digest(archive) != item["sha256"]:
@@ -110,6 +110,10 @@ def main() -> None:
             build = root / "build"
             client = root / "fat-berry-licensing-client"
             tooling = root / "fat-berry-release-tooling"
+            if product.get("framework") == "native":
+                run("cmake", "-S", str(root / "nlohmann-json"), "-B", str(root / "nlohmann-build"),
+                    "-DJSON_BuildTests=OFF", "-DJSON_Install=ON", f"-DCMAKE_INSTALL_PREFIX={root / 'nlohmann-install'}")
+                run("cmake", "--install", str(root / "nlohmann-build"))
             checkpoint("configure")
             configure = ["cmake", "-S", str(source), "-B", str(build), "-G", "Xcode",
                          "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64", "-DCMAKE_BUILD_TYPE=Release",
@@ -143,7 +147,7 @@ def main() -> None:
             receipt = root / "compiled.json"
             receipt.write_text(json.dumps({"sourceSnapshot": product["sourceSnapshot"],
                 "inputIndexSha256": index_hash, "sha256": digest(compiled), "bytes": compiled.stat().st_size,
-                "dependencies": index["dependencies"], "product": product}) + "\n")
+                "dependencies": [*index["dependencies"], *product.get("dependencies", [])], "product": product}) + "\n")
             transfer("put", f"{output_prefix('macos', slug)}/compiled.json", receipt)
             compiled.unlink()
             checkpoint("validate-and-package")
@@ -151,7 +155,7 @@ def main() -> None:
             run("chmod", "+x", str(validator))
             run("xattr", "-cr", str(root / "pluginval"))
             product_file = root / "product.json"
-            product.update(inputIndexSha256=index_hash, dependencySnapshots={d["directory"]: d.get("sourceSnapshot", d["sha256"]) for d in index["dependencies"]})
+            product.update(inputIndexSha256=index_hash, dependencySnapshots={d["directory"]: d.get("sourceSnapshot", d["sha256"]) for d in [*index["dependencies"], *product.get("dependencies", [])]})
             product_file.write_text(json.dumps(product))
             run(sys.executable, str(tooling / "tools/package_staged_macos.py"),
                 "--product", str(product_file), "--vst3", str(bundle(product["vst3Bundle"])),
