@@ -15,6 +15,7 @@ import zipfile
 import datetime
 import signal
 import time
+from compilation_identity import fingerprint
 
 SSH = ["ssh", "-i", str(Path.home() / ".ssh/fatberry-build"), "-o", "BatchMode=yes",
        "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=20", os.environ["RUNNER_SSH_HOST"]]
@@ -72,6 +73,10 @@ def main() -> None:
             raise ValueError("Private input index hash mismatch")
         index = json.loads((root / "index.json").read_text())
         product = next(p for p in index["products"] if p["slug"] == slug)
+        if "compilationFingerprint" in product:
+            if fingerprint(index, product) != product["compilationFingerprint"]:
+                raise ValueError("The explicit compilation contract differs from its fingerprint")
+            status["compilationFingerprint"] = product["compilationFingerprint"]
         status.update(sourceSnapshot=product["sourceSnapshot"], inputIndexSha256=index_hash)
         checkpoint("input")
         with log.open("w") as output:
@@ -110,11 +115,24 @@ def main() -> None:
             build = root / "build"
             client = root / "fat-berry-licensing-client"
             tooling = root / "fat-berry-release-tooling"
-            if product.get("framework") == "native":
+            toolchain = subprocess.check_output(["xcodebuild", "-version"], text=True).strip()
+            cached = product.get("compiledCache")
+            restored = False
+            if cached and cached["toolchain"] == toolchain:
+                checkpoint("restore-compiled-bundles")
+                archive = root / cached["file"]
+                transfer("get", "input/" + cached["file"], archive)
+                if digest(archive) != cached["sha256"] or cached["compilationFingerprint"] != product["compilationFingerprint"]:
+                    raise ValueError("Compiled cache differs from the exact compilation contract")
+                with tarfile.open(archive) as source_archive:
+                    source_archive.extractall(build / "CachedBundles", filter="data")
+                archive.unlink()
+                restored = True
+            if not restored and product.get("framework") == "native":
                 run("cmake", "-S", str(root / "nlohmann-json"), "-B", str(root / "nlohmann-build"),
                     "-DJSON_BuildTests=OFF", "-DJSON_Install=ON", f"-DCMAKE_INSTALL_PREFIX={root / 'nlohmann-install'}")
                 run("cmake", "--install", str(root / "nlohmann-build"))
-            checkpoint("configure")
+            checkpoint("configure" if not restored else "restore-complete")
             configure = ["cmake", "-S", str(source), "-B", str(build), "-G", "Xcode",
                          "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64", "-DCMAKE_BUILD_TYPE=Release",
                          f"-DCMAKE_OSX_DEPLOYMENT_TARGET={product['minimumOS']}",
@@ -129,10 +147,11 @@ def main() -> None:
                          f"-DFATBERRY_RELEASE_TOOLING_DIR={tooling}",
                          "-DSMTG_RUN_VST_VALIDATOR=OFF", "-DSMTG_CREATE_PLUGIN_LINK=OFF",
                          *[arg.replace("{root}", str(root)) for arg in product["cmakeArguments"]]]
-            run(*configure)
-            checkpoint("compile")
-            run("cmake", "--build", str(build), "--config", "Release", "--parallel", "3",
-                "--target", product["vst3Target"], product["auTarget"])
+            if not restored:
+                run(*configure)
+                checkpoint("compile")
+                run("cmake", "--build", str(build), "--config", "Release", "--parallel", "3",
+                    "--target", product["vst3Target"], product["auTarget"])
             def bundle(name: str) -> Path:
                 found = [p for p in build.rglob(name) if p.is_dir()]
                 if len(found) != 1:
@@ -146,6 +165,7 @@ def main() -> None:
             transfer("put", f"{output_prefix('macos', slug)}/compiled.tar.gz", compiled)
             receipt = root / "compiled.json"
             receipt.write_text(json.dumps({"sourceSnapshot": product["sourceSnapshot"],
+                "compilationFingerprint": product.get("compilationFingerprint"), "toolchain": toolchain,
                 "inputIndexSha256": index_hash, "sha256": digest(compiled), "bytes": compiled.stat().st_size,
                 "dependencies": [*index["dependencies"], *product.get("dependencies", [])], "product": product}) + "\n")
             transfer("put", f"{output_prefix('macos', slug)}/compiled.json", receipt)

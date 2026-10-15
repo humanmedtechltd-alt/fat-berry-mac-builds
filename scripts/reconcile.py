@@ -43,6 +43,9 @@ def inspect(root: Path, product: dict) -> dict:
     if status.get("sourceSnapshot") != product["sourceSnapshot"]:
         row.update(stage="awaiting-current-snapshot")
         return row
+    if product.get("compilationFingerprint") and status.get("compilationFingerprint") != product["compilationFingerprint"]:
+        row.update(stage="awaiting-current-dependencies")
+        return row
     for field in ("status", "stage", "runUrl", "updatedAt"):
         if isinstance(status.get(field), str):
             row[field] = status[field]
@@ -159,6 +162,16 @@ def main() -> None:
         temporary.write_text("\n".join(lines) + "\n")
         temporary.chmod(0o600)
         os.replace(temporary, root / "report.md")
+        issues = ["# Something you need to do", "", f"Updated automatically: {report['updatedAt']}", "",
+                  "Release acceptance is incomplete. No candidate is a published release.", ""]
+        for row in rows:
+            if row["status"] in {"failed", "rejected", "blocked", "interrupted"}:
+                issues.append(f"- [ ] {row['name']} ({row['platform']}): {row['status']} — {row['stage']}" +
+                              (f". Diagnostics: {row['runUrl']}" if row.get("runUrl") else ""))
+        atomic_issue = root / "Something you need to do.md.next"
+        atomic_issue.write_text("\n".join(issues) + "\n")
+        atomic_issue.chmod(0o600)
+        os.replace(atomic_issue, root / "Something you need to do.md")
         print(json.dumps({"configured": len(rows), "counts": counts}))
 
 

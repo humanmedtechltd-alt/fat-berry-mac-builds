@@ -7,9 +7,32 @@ import sys
 import tempfile
 import unittest
 from reconcile import inspect, status_path
+from compilation_identity import fingerprint
 
 
 class ReleasePipelineTests(unittest.TestCase):
+    def test_compile_cache_ignores_packaging_but_tracks_licensing(self):
+        product = {key: key for key in ("slug", "version", "sourceSnapshot", "framework", "minimumOS", "vst3Target",
+                   "auTarget", "vst3Bundle", "auBundle", "manufacturerCode", "pluginCode", "auType", "cmakeArguments",
+                   "keygenProductId", "keygenPolicyId", "licensingClientCommit")}
+        index = {"dependencies": [{"directory": "fat-berry-release-tooling", "sha256": "package1"},
+                                  {"directory": "fat-berry-licensing-client", "sha256": "licence1"}],
+                 **{key: key for key in ("toolingCompileSha256", "sodiumSha256", "keygenPublicKey", "licensingApiOrigin")}}
+        original = fingerprint(index, product)
+        index["dependencies"][0]["sha256"] = "package2"
+        self.assertEqual(fingerprint(index, product), original)
+        index["dependencies"][1]["sha256"] = "licence2"
+        self.assertNotEqual(fingerprint(index, product), original)
+
+    def test_stale_dependency_success_cannot_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "output/runs/10/1/macos/big/status.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({"sourceSnapshot": "same", "compilationFingerprint": "old", "status": "passed"}))
+            row = inspect(root, {"slug": "big", "name": "BIG", "sourceSnapshot": "same", "compilationFingerprint": "new"})
+            self.assertEqual(row["stage"], "awaiting-current-dependencies")
+
     def test_transfer_rejects_path_escape_and_shell_commands(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
