@@ -44,11 +44,19 @@ def main() -> None:
         with log.open("w", encoding="utf-8") as output:
             def run(*args: str, capture: bool = False) -> str:
                 if capture:
-                    result = subprocess.run(args, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
+                    result = subprocess.run(args, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
                     output.write(result.stdout + result.stderr)
                     output.flush()
                     return result.stdout
-                subprocess.run(args, check=True, stdout=output, stderr=subprocess.STDOUT)
+                process = subprocess.Popen(args, stdout=output, stderr=subprocess.STDOUT)
+                try:
+                    result = process.wait(timeout=1800)
+                except subprocess.TimeoutExpired:
+                    subprocess.run(["taskkill.exe", "/PID", str(process.pid), "/T", "/F"], stdout=output, stderr=output, timeout=30, check=False)
+                    process.wait(timeout=30)
+                    raise
+                if result:
+                    raise subprocess.CalledProcessError(result, args)
                 return ""
             for item in index["dependencies"]:
                 archive = root / item["file"]

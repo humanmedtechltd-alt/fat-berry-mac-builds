@@ -21,14 +21,26 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
     def run(*args: str, permitted: tuple[int, ...] = (0,), timeout: int = 600) -> int:
         log.write("CHECK: " + " ".join(args) + "\n")
         log.flush()
-        result = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=timeout)
-        if result.returncode not in permitted:
-            raise ValueError(f"Windows installer test failed with exit {result.returncode}")
-        return result.returncode
+        process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
+        try:
+            result = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            subprocess.run(["taskkill.exe", "/PID", str(process.pid), "/T", "/F"], stdout=log, stderr=log, timeout=30, check=False)
+            process.wait(timeout=30)
+            raise
+        if result not in permitted:
+            raise ValueError(f"Windows installer test failed with exit {result}")
+        return result
 
     def uninstall_entries():
+        # Microsoft's x64 Burn bundle can register its bootstrapper in the
+        # 32-bit registry view. The product's own stable AppId remains in x64.
+        for view in (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY):
+            yield from uninstall_view(view)
+
+    def uninstall_view(view):
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", 0,
-                            winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as root:
+                            winreg.KEY_READ | view) as root:
             for index in range(winreg.QueryInfoKey(root)[0]):
                 try:
                     name = winreg.EnumKey(root, index)
@@ -82,6 +94,8 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
                 f"$s=Get-AuthenticodeSignature -LiteralPath '{quoted}';if($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'Microsoft Corporation'){{exit 1}}")
             run(str(executable), "/uninstall", "/quiet", "/norestart", permitted=(0, 3010, 1605))
     absent_before_install = all(not (system / name).exists() for name in runtime_names)
+    log.write("RUNTIME BEFORE INSTALL: " + json.dumps({name: (system / name).exists() for name in runtime_names}) + "\n")
+    log.flush()
     constants = {
         "autopf": os.environ["ProgramW6432"], "autopf64": os.environ["ProgramW6432"],
         "commoncf64": os.environ["CommonProgramW6432"], "commoncf": os.environ["CommonProgramW6432"],
