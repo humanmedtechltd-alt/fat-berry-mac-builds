@@ -150,6 +150,8 @@ def main() -> None:
             from test_windows_install import validate_install
             validator = next(path for path in (root / "pluginval").rglob("pluginval.exe") if path.is_file())
             installation = validate_install(product, final, root, output, validator)
+            from test_windows_wizard import validate_wizard
+            installation.update(validate_wizard(final, root, output))
             record = {**product["original"], "sizeBytes": final.stat().st_size, "sha256": digest(final),
                       "auditedBuildInputSha256": product["buildInputSha256"], "payloadFiles": list(expected.values()),
                       "validation": {"archiveIntegrity": "passed", "payloadHashes": "passed", "moduleHash": "passed",
@@ -170,6 +172,8 @@ def main() -> None:
                 transfer("put", f"{output_prefix('windows', slug)}/{diagnostic.name}", diagnostic)
         if log.exists():
             transfer("put", f"{output_prefix('windows', slug)}/build.log", log)
+        for diagnostic in (root / "wizard-dumps").glob("*.bmp"):
+            transfer("put", f"{output_prefix('windows', slug)}/{diagnostic.name}", diagnostic)
         checkpoint(status["stage"], status["status"])
     print(f"{slug}: {status['status']} ({status['stage']}); detailed diagnostics remain private")
     if status["status"] == "failed":
