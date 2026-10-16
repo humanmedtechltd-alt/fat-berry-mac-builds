@@ -90,6 +90,13 @@ def main() -> None:
                 transfer("get", "input/" + replacement["file"], destination)
                 if destination.stat().st_size != replacement["bytes"] or digest(destination) != replacement["sha256"]:
                     raise ValueError("Replacement product content hash mismatch")
+            for addition in product.get("additions", []):
+                destination = payload / addition["path"]
+                if destination.exists() or not destination.resolve().is_relative_to(payload.resolve()):
+                    raise ValueError("Additional content conflicts with an existing file or escapes the payload")
+                transfer("get", "input/" + addition["file"], destination)
+                if destination.stat().st_size != addition["bytes"] or digest(destination) != addition["sha256"]:
+                    raise ValueError("Additional product content hash mismatch")
             module = payload / product["modulePath"]
             if digest(module) != product["original"]["vst3Sha256"]:
                 raise ValueError("Audited plugin module changed")
@@ -112,33 +119,14 @@ def main() -> None:
                 design = root / "design"
                 installed_bytes = sum(e["bytes"] for e in product["payloadFiles"])
                 installed_bytes += sum(e["bytes"] - e["oldBytes"] for e in product.get("replacements", []))
+                installed_bytes += sum(e["bytes"] for e in product.get("additions", []))
                 run(powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(kit / "Render-InstallerDesign.ps1"),
                     "-ProductName", product["name"], "-ProductVersion", product["version"],
                     "-BundleName", product["vst3Bundle"], "-DiskSpaceMb", f"{installed_bytes / 1024**2:.1f}",
                     "-OutputDirectory", str(design))
-                def define(name: str, value: str) -> str:
-                    if '"' in value or "\n" in value:
-                        raise ValueError("Invalid installer preprocessor value")
-                    return f'#define {name} "{value}"'
-                lines = [define("ProductName", product["name"]), define("ProductVersion", product["version"]),
-                         define("Vst3BundleName", product["vst3Bundle"]), define("OutputSlug", slug),
-                         define("FbKitDir", str(kit)), define("FbDesignDir", str(design))]
-                lines += ["[Setup]", *product["setup"], f"OutputDir={final.parent}", "OutputBaseFilename=installer-win",
-                          "Compression=lzma2", "SolidCompression=yes", "PrivilegesRequired=admin", f"MinVersion={product['minimumWindows']}"]
-                lines += [f'#include "{kit / "FatBerryWizard.isi"}"', "[Files]"]
-                for entry in product["fileEntries"]:
-                    lines.append(entry.replace("@PAYLOAD@", str(payload)))
-                lines.extend(product["additionalSections"])
-                # Keep product upgrade, staging, recovery and uninstall behavior.
-                # Decompiled file listings do not contain the original Pascal code.
-                if product["installerCode"]:
-                    lines.append(product["installerCode"])
-                if product["runtimeImports"]:
-                    lines += [define("FatBerryVcRedistPath", str(redist)), define("FatBerryVcRedistSha256", index["runtime"]["sha256"])]
-                    lines += [f"#define FatBerryVc{name} {value}" for name, value in zip(("Major", "Minor", "Build", "Revision"), index["runtime"]["version"].split("."))]
-                    lines += [f'#include "{tooling / "packaging/windows/FatBerryVcRuntime.isi"}"']
+                from installer_script import write_script
                 script = root / "installer.iss"
-                script.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
+                write_script(product, index["runtime"], tooling, design, payload, redist, final, script)
                 run(str(root / "tools/inno/ISCC.exe"), "/Q", str(script))
             else:
                 shutil.copy2(original, final)
@@ -149,6 +137,8 @@ def main() -> None:
             expected = {e["path"]: e for e in product["payloadFiles"]}
             for replacement in product.get("replacements", []):
                 expected[replacement["path"]] = replacement
+            for addition in product.get("additions", []):
+                expected[addition["path"]] = addition
             for relative, entry in expected.items():
                 actual = verify / relative
                 if not actual.is_file() or actual.stat().st_size != entry["bytes"] or digest(actual) != entry["sha256"]:

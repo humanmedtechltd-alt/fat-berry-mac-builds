@@ -42,8 +42,8 @@ Unit=fatberry-installer-report.service
 [Install]
 WantedBy=multi-user.target
 """
-    files = {f"{ROOT}/transfer.py": (scripts / "transfer.py").read_text(),
-             f"{ROOT}/reconcile.py": (scripts / "reconcile.py").read_text(),
+    files = {f"{ROOT}/transfer.py": (scripts / "transfer.py").read_text(encoding="utf-8"),
+             f"{ROOT}/reconcile.py": (scripts / "reconcile.py").read_text(encoding="utf-8"),
              "/etc/systemd/system/fatberry-installer-report.service": service,
              "/etc/systemd/system/fatberry-installer-report.path": watcher}
     program = """import json,sys,pathlib,os,subprocess

@@ -1,0 +1,36 @@
+name: Private macOS Keychain helper acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      index_sha256:
+        description: Immutable private source index SHA-256
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  keychain:
+    runs-on: macos-15
+    timeout-minutes: 10
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+      INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restricted private transfer
+        env:
+          RUNNER_SSH_KEY: ${{ secrets.RUNNER_SSH_KEY }}
+          RUNNER_KNOWN_HOSTS: ${{ secrets.RUNNER_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$RUNNER_SSH_KEY" > "$HOME/.ssh/fatberry-build"
+          printf '%s\n' "$RUNNER_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+      - name: Compile and test actual helper privately
+        run: python3 scripts/test_keychain_helper.py
+      - name: Remove private files
+        if: always()
+        run: |
+          rm -f "$HOME/.ssh/fatberry-build"
+          rm -rf work

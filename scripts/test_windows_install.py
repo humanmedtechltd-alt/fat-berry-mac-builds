@@ -114,6 +114,8 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
     files = {entry["path"]: entry for entry in product["payloadFiles"]}
     for entry in product.get("replacements", []):
         files[entry["path"]] = entry
+    for entry in product.get("additions", []):
+        files[entry["path"]] = entry
     installed = {}
     for relative, entry in files.items():
         destination = resolve(relative.replace("/", "\\"))

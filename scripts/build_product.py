@@ -115,6 +115,7 @@ def main() -> None:
             build = root / "build"
             client = root / "fat-berry-licensing-client"
             tooling = root / "fat-berry-release-tooling"
+            framework_arguments = []
             toolchain = subprocess.check_output(["xcodebuild", "-version"], text=True).strip()
             cached = product.get("compiledCache")
             restored = False
@@ -132,6 +133,14 @@ def main() -> None:
                 run("cmake", "-S", str(root / "nlohmann-json"), "-B", str(root / "nlohmann-build"),
                     "-DJSON_BuildTests=OFF", "-DJSON_Install=ON", f"-DCMAKE_INSTALL_PREFIX={root / 'nlohmann-install'}")
                 run("cmake", "--install", str(root / "nlohmann-build"))
+            if not restored and product.get("framework") == "iplug2":
+                checkpoint("prepare-framework")
+                run(sys.executable, str(source / "scripts/prepare-framework.py"), cwd=source)
+                layout = json.loads((source / "third-party/framework-layout.json").read_text())
+                framework = (source / layout["iplug2_dir"]).resolve()
+                if not framework.is_relative_to(source / "vendor/derived"):
+                    raise ValueError("The prepared iPlug2 framework escapes its product checkout")
+                framework_arguments.append(f"-DIPLUG2_DIR={framework}")
             checkpoint("configure" if not restored else "restore-complete")
             configure = ["cmake", "-S", str(source), "-B", str(build), "-G", "Xcode",
                          "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64", "-DCMAKE_BUILD_TYPE=Release",
@@ -146,7 +155,7 @@ def main() -> None:
                          "-DFATBERRY_LICENSING_SNAPSHOT_SHA256=" + next(d["sourceSnapshot"] for d in index["dependencies"] if d["directory"] == "fat-berry-licensing-client"),
                          f"-DFATBERRY_RELEASE_TOOLING_DIR={tooling}",
                          "-DSMTG_RUN_VST_VALIDATOR=OFF", "-DSMTG_CREATE_PLUGIN_LINK=OFF",
-                         *[arg.replace("{root}", str(root)) for arg in product["cmakeArguments"]]]
+                         *[arg.replace("{root}", str(root)) for arg in product["cmakeArguments"]], *framework_arguments]
             if not restored:
                 run(*configure)
                 checkpoint("compile")
@@ -157,6 +166,17 @@ def main() -> None:
                 if len(found) != 1:
                     raise ValueError("Expected exactly one fresh format bundle")
                 return found[0]
+            if not restored:
+                helpers = [p for p in build.rglob("fatberry-keychain-store") if p.is_file()]
+                if len(helpers) != 1:
+                    raise ValueError("Expected exactly one fresh macOS licensing helper")
+                for name in (product["vst3Bundle"], product["auBundle"]):
+                    outer = bundle(name)
+                    for target in [outer, *[p for p in outer.rglob("*.vst3") if p.is_dir()]]:
+                        destination = target / "Contents/Resources/fatberry-keychain-store"
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(helpers[0], destination)
+                        destination.chmod(0o755)
             checkpoint("save-compiled-bundles")
             compiled = root / "compiled.tar.gz"
             with tarfile.open(compiled, "w:gz", compresslevel=1) as archive:
