@@ -6,6 +6,11 @@ on:
         description: Immutable private installer and activation acceptance index
         required: true
         type: string
+      platform:
+        description: Platforms requiring new acceptance evidence
+        type: choice
+        default: both
+        options: [both, macos, windows]
 permissions:
   contents: read
 concurrency:
@@ -16,11 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: macos
-            runner: macos-15
-          - platform: windows
-            runner: windows-2025
+        include: ${{ fromJSON(inputs.platform == 'macos' && '[{"platform":"macos","runner":"macos-15"}]' || inputs.platform == 'windows' && '[{"platform":"windows","runner":"windows-2025"}]' || '[{"platform":"macos","runner":"macos-15"},{"platform":"windows","runner":"windows-2025"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 50
     env:
