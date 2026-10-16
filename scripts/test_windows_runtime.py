@@ -129,15 +129,21 @@ def main():
         request = next(p for p in index["products"] if p["slug"] == slug)
         transfer("get", "input/" + request["file"], work / "installer-win.exe")
         result.update(installerSha256=request["sha256"], buildInputSha256=request["buildInputSha256"], sourceRun=request["sourceRun"])
+        result["validation"] = {}
         with (work / "runtime.log").open("w", encoding="utf-8") as log:
-            result["validation"] = validate_runtime(request, work / "installer-win.exe", work, log)
+            if "wizard" in request.get("checks", ["runtime"]):
+                from test_windows_wizard import validate_wizard
+                result["validation"].update(validate_wizard(work / "installer-win.exe", work, log))
+            if "runtime" in request.get("checks", ["runtime"]):
+                result["validation"].update(validate_runtime(request, work / "installer-win.exe", work, log))
         result["status"] = "passed"
     except Exception as error:
         with (work / "runtime.log").open("a", encoding="utf-8") as log:
             log.write(f"\n{type(error).__name__}: {error}\n")
     finally:
         (work / "status.json").write_text(json.dumps(result, indent=2) + "\n")
-        for path in [*work.glob("*.log"), *work.glob("runtime-container/*.log"), *work.glob("runtime-container/result.json"), work / "status.json"]:
+        for path in [*work.glob("*.log"), *work.glob("wizard-geometry.json"), *work.glob("wizard-dumps/*.bmp"),
+                     *work.glob("runtime-container/*.log"), *work.glob("runtime-container/result.json"), work / "status.json"]:
             transfer("put", f"{remote}/{path.name}", path)
     print(f"{slug}: {result['status']}; isolated Windows runtime diagnostics are private")
     if result["status"] != "passed":

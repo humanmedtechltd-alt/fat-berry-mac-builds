@@ -19,13 +19,14 @@ def validate_wizard(installer: Path, work: Path, log) -> dict:
     user.PostMessageW.argtypes = [w.HWND, w.UINT, w.WPARAM, w.LPARAM]
     user.GetWindowThreadProcessId.argtypes = [w.HWND, ctypes.POINTER(w.DWORD)]
     user.GetClientRect.argtypes = [w.HWND, ctypes.POINTER(w.RECT)]
+    user.IsWindowVisible.argtypes = [w.HWND]
     dump = work / "wizard-dumps"
     dump.mkdir()
     process = subprocess.Popen([str(installer), "/SP-", "/SUPPRESSMSGBOXES", "/NORESTART", "/FBSCALE=100",
                                 f"/FBDUMP={dump}", f"/LOG={work / 'wizard.log'}"], stdout=log, stderr=log)
     try:
-        # The Setup loader starts its protected child. Find only a wizard whose
-        # executable is in this job's private work tree, never an unrelated UI.
+        # The protected child recreates its HWND while applying BorderStyle.
+        # Wait for the visible final handle after InitializeWizard completes.
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
         kernel.OpenProcess.restype = w.HANDLE
@@ -81,22 +82,32 @@ def validate_wizard(installer: Path, work: Path, log) -> dict:
         def collect(hwnd, unused):
             name = ctypes.create_unicode_buffer(128)
             user.GetClassNameW(hwnd, name, len(name))
-            if name.value == "TWizardForm":
+            if name.value == "TWizardForm" and user.IsWindowVisible(hwnd):
                 pid = w.DWORD()
                 user.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
                 if belongs(pid.value):
                     windows.append(hwnd)
             return True
         deadline = time.monotonic() + 45
-        while not windows and time.monotonic() < deadline and process.poll() is None:
+        stable = None
+        stable_since = time.monotonic()
+        rect = w.RECT()
+        while time.monotonic() < deadline and process.poll() is None:
+            windows.clear()
             refresh_parents()
             user.EnumWindows(collect, 0)
+            current = None
+            if len(windows) == 1 and user.GetClientRect(windows[0], ctypes.byref(rect)):
+                current = (windows[0], rect.right, rect.bottom)
+            if current is not None and current == stable:
+                if time.monotonic() - stable_since >= 0.5:
+                    break
+            else:
+                stable, stable_since = current, time.monotonic()
             time.sleep(0.2)
-        if len(windows) != 1:
+        if len(windows) != 1 or stable is None:
             raise ValueError("The product's interactive wizard did not open uniquely")
         window = windows[0]
-        time.sleep(1)
-        rect = w.RECT()
         if not user.GetClientRect(window, ctypes.byref(rect)):
             raise ctypes.WinError(ctypes.get_last_error())
         dimensions = (rect.right, rect.bottom)
