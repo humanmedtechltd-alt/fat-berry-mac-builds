@@ -12,10 +12,15 @@ from compilation_identity import fingerprint
 
 class ReleasePipelineTests(unittest.TestCase):
     def test_continuation_is_claimed_only_once(self):
+        for kind in ("activation", "build"):
+            with self.subTest(kind=kind):
+                self.check_continuation_claim(kind)
+
+    def check_continuation_claim(self, kind):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "input").mkdir()
-            name = "activation-continuation-" + "a" * 64 + ".json"
+            name = kind + "-continuation-" + "a" * 64 + ".json"
             (root / "input" / name).write_text('{"queued":true}')
             args = [sys.executable, str(Path(__file__).with_name("transfer.py")), str(root)]
             env = {**os.environ, "SSH_ORIGINAL_COMMAND": "get input/" + name}

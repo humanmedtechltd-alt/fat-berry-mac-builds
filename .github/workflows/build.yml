@@ -62,3 +62,32 @@ jobs:
         run: |
           rm -f "$HOME/.ssh/fatberry-build"
           rm -rf work
+  continue-independent-pilots:
+    needs: build
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure private one-shot queue access
+        env:
+          RUNNER_SSH_KEY: ${{ secrets.RUNNER_SSH_KEY }}
+          RUNNER_KNOWN_HOSTS: ${{ secrets.RUNNER_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$RUNNER_SSH_KEY" > "$HOME/.ssh/fatberry-build"
+          printf '%s\n' "$RUNNER_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+      - name: Dispatch the explicitly queued independent source pilot
+        env:
+          INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
+          CONTINUATION_KIND: build
+          RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/dispatch_activation_continuation.py
+      - name: Remove queue credentials
+        if: always()
+        run: rm -f "$HOME/.ssh/fatberry-build"

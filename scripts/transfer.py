@@ -30,7 +30,7 @@ def main() -> None:
         raise SystemExit("Object escapes transfer directory")
     if operation == "get":
         with path.open("rb") as source:
-            if path.parent == root / "input" and re.fullmatch(r"activation-continuation-[0-9a-f]{64}\.json", path.name):
+            if path.parent == root / "input" and re.fullmatch(r"(?:activation|build)-continuation-[0-9a-f]{64}\.json", path.name):
                 claims = root / ".private/continuation-claims"
                 claims.mkdir(mode=0o700, parents=True, exist_ok=True)
                 try:

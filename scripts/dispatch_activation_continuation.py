@@ -6,11 +6,14 @@ import re
 import subprocess
 
 checksum = os.environ["INPUT_INDEX_SHA256"]
+kind = os.environ.get("CONTINUATION_KIND", "activation")
+if kind not in {"activation", "build"}:
+    raise ValueError("Unknown completed workflow kind")
 if not re.fullmatch(r"[0-9a-f]{64}", checksum):
     raise SystemExit("Invalid completed acceptance identity")
 ssh = ["ssh", "-i", str(Path.home() / ".ssh/fatberry-build"), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
        "-o", "ConnectTimeout=20", os.environ["RUNNER_SSH_HOST"]]
-result = subprocess.run(ssh + [f"get input/activation-continuation-{checksum}.json"], stdin=subprocess.DEVNULL,
+result = subprocess.run(ssh + [f"get input/{kind}-continuation-{checksum}.json"], stdin=subprocess.DEVNULL,
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
 if result.returncode:
     # A batch without an explicit continuation simply stops. The server's
