@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+from compilation_identity import fingerprint
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -133,6 +134,9 @@ def main() -> None:
             if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", product["slug"]):
                 raise ValueError("Invalid configured slug")
             try:
+                # Global dependencies can change while an unselected product's
+                # stored fingerprint still describes an older batch.
+                product = {**product, "compilationFingerprint": fingerprint(index, product)}
                 rows.append({**inspect(root, product), "platform": "macos"})
             except Exception as error:
                 rows.append({"slug": product["slug"], "name": product["name"], "status": "rejected",
@@ -172,6 +176,10 @@ def main() -> None:
         atomic_issue.write_text("\n".join(issues) + "\n")
         atomic_issue.chmod(0o600)
         os.replace(atomic_issue, root / "Something you need to do.md")
+        qa_helper = root / "production_qa_lease.py"
+        if qa_helper.is_file():
+            import subprocess
+            subprocess.run(["/usr/bin/python3", str(qa_helper), str(root), "reap"], timeout=240, check=False)
         print(json.dumps({"configured": len(rows), "counts": counts}))
 
 

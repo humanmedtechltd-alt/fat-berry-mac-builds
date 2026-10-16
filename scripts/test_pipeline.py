@@ -11,6 +11,19 @@ from compilation_identity import fingerprint
 
 
 class ReleasePipelineTests(unittest.TestCase):
+    def test_continuation_is_claimed_only_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "input").mkdir()
+            name = "activation-continuation-" + "a" * 64 + ".json"
+            (root / "input" / name).write_text('{"queued":true}')
+            args = [sys.executable, str(Path(__file__).with_name("transfer.py")), str(root)]
+            env = {**os.environ, "SSH_ORIGINAL_COMMAND": "get input/" + name}
+            first = subprocess.run(args, env=env, capture_output=True)
+            second = subprocess.run(args, env=env, capture_output=True)
+            self.assertEqual(first.returncode, 0)
+            self.assertEqual(first.stdout, b'{"queued":true}')
+            self.assertNotEqual(second.returncode, 0)
     def test_compile_cache_ignores_packaging_but_tracks_licensing(self):
         product = {key: key for key in ("slug", "version", "sourceSnapshot", "framework", "minimumOS", "vst3Target",
                    "auTarget", "vst3Bundle", "auBundle", "manufacturerCode", "pluginCode", "auType", "cmakeArguments",

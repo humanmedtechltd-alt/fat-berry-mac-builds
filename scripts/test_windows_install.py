@@ -12,7 +12,7 @@ import winreg
 from build_product import digest
 
 
-def validate_install(product: dict, installer: Path, work: Path, log, pluginval: Path) -> dict:
+def validate_install(product: dict, installer: Path, work: Path, log, pluginval: Path, before_scan=None) -> dict:
     if (os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("FATBERRY_RUNNER_ENVIRONMENT") != "github-hosted"
             or os.environ.get("RUNNER_OS") != "Windows"):
@@ -136,6 +136,8 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
         raise ValueError("Required Visual C++ runtime DLLs remain absent after installation")
     module = next(path for path in installed if path.name.endswith(".vst3") and path.is_file())
     bundle = next(parent for parent in module.parents if parent.name.endswith(".vst3"))
+    if before_scan is not None:
+        before_scan(bundle)
     run(str(pluginval), "--strictness-level", "5", "--validate", str(bundle), timeout=600)
     run(str(installer), *options, f"/LOG={work / 'reinstall.log'}", permitted=(0, 3010), timeout=1200)
     verify()

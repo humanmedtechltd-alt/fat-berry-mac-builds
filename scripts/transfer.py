@@ -12,6 +12,7 @@ import sys
 import json
 import time
 import shutil
+import re
 
 
 def main() -> None:
@@ -29,6 +30,13 @@ def main() -> None:
         raise SystemExit("Object escapes transfer directory")
     if operation == "get":
         with path.open("rb") as source:
+            if path.parent == root / "input" and re.fullmatch(r"activation-continuation-[0-9a-f]{64}\.json", path.name):
+                claims = root / ".private/continuation-claims"
+                claims.mkdir(mode=0o700, parents=True, exist_ok=True)
+                try:
+                    os.link(path, claims / path.name)
+                except FileExistsError:
+                    raise SystemExit("Continuation already claimed; duplicate dispatch suppressed")
             while block := source.read(1024 * 1024):
                 sys.stdout.buffer.write(block)
     else:

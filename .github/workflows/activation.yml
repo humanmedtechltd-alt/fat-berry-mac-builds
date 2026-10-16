@@ -1,0 +1,103 @@
+name: Private production activation and installed-plugin acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      index_sha256:
+        description: Immutable private installer and activation acceptance index
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: fatberry-macos-release
+  cancel-in-progress: false
+jobs:
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-15
+          - platform: windows
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 50
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      ACCEPTANCE_PLATFORM: ${{ matrix.platform }}
+      INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
+      RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+      FATBERRY_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure restricted private transfer on macOS
+        if: runner.os == 'macOS'
+        env:
+          RUNNER_SSH_KEY: ${{ secrets.RUNNER_SSH_KEY }}
+          RUNNER_KNOWN_HOSTS: ${{ secrets.RUNNER_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$RUNNER_SSH_KEY" > "$HOME/.ssh/fatberry-build"
+          printf '%s\n' "$RUNNER_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+      - name: Configure restricted private transfer on Windows
+        if: runner.os == 'Windows'
+        env:
+          RUNNER_SSH_KEY: ${{ secrets.RUNNER_SSH_KEY }}
+          RUNNER_KNOWN_HOSTS: ${{ secrets.RUNNER_KNOWN_HOSTS }}
+        shell: pwsh
+        run: |
+          $sshDir = Join-Path $HOME '.ssh'
+          New-Item -ItemType Directory -Force -Path $sshDir | Out-Null
+          [IO.File]::WriteAllText((Join-Path $sshDir 'fatberry-build'), $env:RUNNER_SSH_KEY + "`n")
+          [IO.File]::WriteAllText((Join-Path $sshDir 'known_hosts'), $env:RUNNER_KNOWN_HOSTS + "`n")
+          icacls (Join-Path $sshDir 'fatberry-build') /inheritance:r /grant:r "${env:USERNAME}:(R)" | Out-Null
+      - name: Test the production client and actual installed candidate privately
+        run: python scripts/accept_production_activation.py
+      - name: Persist private diagnostics after interruption
+        if: always()
+        run: python scripts/finalize_activation.py
+      - name: Remove private files on macOS
+        if: always() && runner.os == 'macOS'
+        run: |
+          rm -f "$HOME/.ssh/fatberry-build"
+          rm -rf work
+      - name: Remove private files on Windows
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $key = Join-Path $HOME '.ssh/fatberry-build'
+          if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Force }
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+          $work = [IO.Path]::GetFullPath((Join-Path $workspace 'work'))
+          if (!$work.StartsWith($workspace + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe cleanup target' }
+          if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+  continue-independent-pilots:
+    needs: acceptance
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure private one-shot queue access
+        env:
+          RUNNER_SSH_KEY: ${{ secrets.RUNNER_SSH_KEY }}
+          RUNNER_KNOWN_HOSTS: ${{ secrets.RUNNER_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$RUNNER_SSH_KEY" > "$HOME/.ssh/fatberry-build"
+          printf '%s\n' "$RUNNER_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+      - name: Dispatch only an explicitly queued independent source pilot
+        env:
+          INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
+          RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/dispatch_activation_continuation.py
+      - name: Remove queue credentials
+        if: always()
+        run: rm -f "$HOME/.ssh/fatberry-build"

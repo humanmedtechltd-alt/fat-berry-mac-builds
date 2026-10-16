@@ -135,6 +135,8 @@ def main() -> None:
                 run("cmake", "--install", str(root / "nlohmann-build"))
             if not restored and product.get("framework") == "iplug2":
                 checkpoint("prepare-framework")
+                for dependency in ("iPlug2", "vst3sdk", "clap", "clap-helpers"):
+                    run("git", "-C", str(source / "vendor" / dependency), "status", "--porcelain", "--untracked-files=all")
                 run(sys.executable, str(source / "scripts/prepare-framework.py"), cwd=source)
                 layout = json.loads((source / "third-party/framework-layout.json").read_text())
                 framework = (source / layout["iplug2_dir"]).resolve()
