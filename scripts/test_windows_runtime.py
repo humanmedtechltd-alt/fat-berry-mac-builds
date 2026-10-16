@@ -84,6 +84,10 @@ def validate_runtime(request: dict, installer: Path, work: Path, log) -> dict:
         if result:
             raise subprocess.CalledProcessError(result, args)
 
+    run("powershell.exe", "-NoProfile", "-Command",
+        "$ErrorActionPreference='Stop';$service=Get-Service -Name docker;"
+        "if($service.Status -ne 'Running'){Start-Service -Name docker;"
+        "$service.WaitForStatus('Running',[TimeSpan]::FromSeconds(30))}")
     run("docker", "info")
     for attempt in range(3):
         try:
