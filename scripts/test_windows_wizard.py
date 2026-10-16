@@ -20,6 +20,8 @@ def validate_wizard(installer: Path, work: Path, log) -> dict:
     user.GetWindowThreadProcessId.argtypes = [w.HWND, ctypes.POINTER(w.DWORD)]
     user.GetClientRect.argtypes = [w.HWND, ctypes.POINTER(w.RECT)]
     user.IsWindowVisible.argtypes = [w.HWND]
+    user.GetWindowTextW.argtypes = [w.HWND, w.LPWSTR, ctypes.c_int]
+    user.EnumChildWindows.argtypes = [w.HWND, callback, w.LPARAM]
     dump = work / "wizard-dumps"
     dump.mkdir()
     process = subprocess.Popen([str(installer), "/SP-", "/SUPPRESSMSGBOXES", "/NORESTART", "/FBSCALE=100",
@@ -115,6 +117,38 @@ def validate_wizard(installer: Path, work: Path, log) -> dict:
         if process.poll() is not None:
             raise ValueError("The interactive wizard crashed before cancellation")
         user.PostMessageW(window, 0x0010, 0, 0)  # WM_CLOSE uses the actual Cancel path.
+        # Normal interactive Setup asks Yes/No even with SUPPRESSMSGBOXES.
+        # Answer only the Yes button in this job's own visible confirmation.
+        answered = set()
+        @callback
+        def confirm_cancel(dialog, unused):
+            if dialog == window or not user.IsWindowVisible(dialog):
+                return True
+            pid = w.DWORD()
+            user.GetWindowThreadProcessId(dialog, ctypes.byref(pid))
+            if not belongs(pid.value):
+                return True
+            buttons = []
+            @callback
+            def find_yes(child, unused_child):
+                caption = ctypes.create_unicode_buffer(256)
+                kind = ctypes.create_unicode_buffer(128)
+                user.GetWindowTextW(child, caption, len(caption))
+                user.GetClassNameW(child, kind, len(kind))
+                if (kind.value in {"Button", "TNewButton", "TButton"}
+                        and caption.value.replace("&", "").strip() == "Yes"):
+                    buttons.append(child)
+                return True
+            user.EnumChildWindows(dialog, find_yes, 0)
+            if len(buttons) == 1 and dialog not in answered:
+                user.PostMessageW(buttons[0], 0x00F5, 0, 0)  # BM_CLICK
+                answered.add(dialog)
+            return True
+        deadline = time.monotonic() + 30
+        while process.poll() is None and time.monotonic() < deadline:
+            refresh_parents()
+            user.EnumWindows(confirm_cancel, 0)
+            time.sleep(0.1)
         if process.wait(timeout=30) != 2:
             raise ValueError("Wizard cancellation crashed or did not report user cancellation")
         if dimensions != (820, 560):
