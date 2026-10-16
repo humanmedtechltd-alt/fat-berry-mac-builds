@@ -39,7 +39,13 @@ def restore(source, expected, run):
                                     *[(contained(destination, p["path"]), p["commit"]) for p in item["submodules"]]]:
             if not re.fullmatch(r"[0-9a-f]{40}", revision):
                 raise ValueError("Invalid public SDK submodule revision")
-            actual = subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], timeout=30).decode().strip()
-            dirty = subprocess.check_output(["git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"], timeout=60)
+            actual = subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], stderr=subprocess.STDOUT, timeout=30).decode().strip()
+            dirty = subprocess.check_output(["git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"], stderr=subprocess.STDOUT, timeout=60)
             if actual != revision or dirty.strip():
                 raise ValueError("The restored public SDK differs from the clean local pin")
+    # Independent shallow Git identities intentionally omit local URL/credential
+    # configuration. Restore registration from the pinned .gitmodules files,
+    # without fetching, checking out or altering any captured source bytes.
+    for folder in [source, *[contained(source, p["path"]) for p in manifest.get("submodules", [])]]:
+        if (folder / ".gitmodules").is_file():
+            run("git", "-C", str(folder), "submodule", "init")
