@@ -28,7 +28,6 @@ jobs:
       ACCEPTANCE_PLATFORM: ${{ matrix.platform }}
       INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
       RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
-      FATBERRY_RUNNER_ENVIRONMENT: ${{ runner.environment }}
     steps:
       - uses: actions/checkout@v4
       - name: Configure restricted private transfer on macOS
@@ -54,6 +53,8 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $sshDir 'known_hosts'), $env:RUNNER_KNOWN_HOSTS + "`n")
           icacls (Join-Path $sshDir 'fatberry-build') /inheritance:r /grant:r "${env:USERNAME}:(R)" | Out-Null
       - name: Test the production client and actual installed candidate privately
+        env:
+          FATBERRY_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: python scripts/accept_production_activation.py
       - name: Persist private diagnostics after interruption
         if: always()
