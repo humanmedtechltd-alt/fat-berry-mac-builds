@@ -115,6 +115,11 @@ def main() -> None:
             build = root / "build"
             client = root / "fat-berry-licensing-client"
             tooling = root / "fat-berry-release-tooling"
+            # Proprietary source is still captured from the local working tree.
+            # Only SDKs proved clean locally can use native, pinned Git checkout.
+            from public_sdk_inputs import restore
+            restore(source, product["sourceSnapshot"], run)
+            run(sys.executable, str(tooling / "tools/verify_source_snapshot.py"), str(source), product["sourceSnapshot"])
             framework_arguments = []
             toolchain = subprocess.check_output(["xcodebuild", "-version"], text=True).strip()
             cached = product.get("compiledCache")
