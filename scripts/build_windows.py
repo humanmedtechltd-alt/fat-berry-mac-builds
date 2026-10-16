@@ -147,6 +147,14 @@ def main() -> None:
                 if digest(verify / "{tmp}/FatBerry-VC_redist.x64.exe") != index["runtime"]["sha256"]:
                     raise ValueError("Final installer lacks the verified runtime")
             checkpoint("install-upgrade-scan-uninstall")
+            # Save the exact verified candidate before GUI/installation checks.
+            # A later acceptance fix must not force another artwork/package build.
+            (final.parent / "candidate.json").write_text(json.dumps({
+                "slug": slug, "sha256": digest(final), "sizeBytes": final.stat().st_size,
+                "buildInputSha256": product["buildInputSha256"], "payloadFiles": list(expected.values()),
+                "validation": {"archiveIntegrity": "passed", "payloadHashes": "passed"}}, indent=2) + "\n")
+            for file in (final, final.parent / "candidate.json"):
+                transfer("put", f"{output_prefix('windows', slug)}/{file.name}", file)
             from test_windows_install import validate_install
             validator = next(path for path in (root / "pluginval").rglob("pluginval.exe") if path.is_file())
             installation = validate_install(product, final, root, output, validator)
@@ -174,6 +182,8 @@ def main() -> None:
             transfer("put", f"{output_prefix('windows', slug)}/build.log", log)
         for diagnostic in (root / "wizard-dumps").glob("*.bmp"):
             transfer("put", f"{output_prefix('windows', slug)}/{diagnostic.name}", diagnostic)
+        if (root / "wizard-geometry.json").exists():
+            transfer("put", f"{output_prefix('windows', slug)}/wizard-geometry.json", root / "wizard-geometry.json")
         checkpoint(status["stage"], status["status"])
     print(f"{slug}: {status['status']} ({status['stage']}); detailed diagnostics remain private")
     if status["status"] == "failed":

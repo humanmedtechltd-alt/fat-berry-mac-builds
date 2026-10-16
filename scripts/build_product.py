@@ -167,9 +167,18 @@ def main() -> None:
                     raise ValueError("Expected exactly one fresh format bundle")
                 return found[0]
             if not restored:
-                helpers = [p for p in build.rglob("fatberry-keychain-store") if p.is_file()]
-                if len(helpers) != 1:
-                    raise ValueError("Expected exactly one fresh macOS licensing helper")
+                # Xcode also emits one thin intermediate per architecture.
+                # Select the real universal product and reject conflicting copies.
+                helpers = []
+                for candidate in build.rglob("fatberry-keychain-store"):
+                    if not candidate.is_file():
+                        continue
+                    check = subprocess.run(["lipo", str(candidate), "-verify_arch", "arm64", "x86_64"],
+                                           stdout=output, stderr=output, timeout=20)
+                    if check.returncode == 0:
+                        helpers.append(candidate)
+                if not helpers or len({digest(p) for p in helpers}) != 1:
+                    raise ValueError("The fresh universal macOS licensing helper is missing or ambiguous")
                 for name in (product["vst3Bundle"], product["auBundle"]):
                     outer = bundle(name)
                     for target in [outer, *[p for p in outer.rglob("*.vst3") if p.is_dir()]]:

@@ -2,6 +2,7 @@
 import ctypes
 from ctypes import wintypes as w
 import os
+import json
 from pathlib import Path
 import subprocess
 import time
@@ -96,13 +97,17 @@ def validate_wizard(installer: Path, work: Path, log) -> dict:
         window = windows[0]
         time.sleep(1)
         rect = w.RECT()
-        if not user.GetClientRect(window, ctypes.byref(rect)) or (rect.right, rect.bottom) != (820, 560):
-            raise ValueError("The actual wizard does not match its 100% design dimensions")
+        if not user.GetClientRect(window, ctypes.byref(rect)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        dimensions = (rect.right, rect.bottom)
+        (work / "wizard-geometry.json").write_text(json.dumps({"client": dimensions, "expected": [820, 560]}))
         if process.poll() is not None:
             raise ValueError("The interactive wizard crashed before cancellation")
         user.PostMessageW(window, 0x0010, 0, 0)  # WM_CLOSE uses the actual Cancel path.
         if process.wait(timeout=30) != 2:
             raise ValueError("Wizard cancellation crashed or did not report user cancellation")
+        if dimensions != (820, 560):
+            raise ValueError(f"The actual wizard client is {dimensions}; expected (820, 560)")
         return {"interactiveWizardOpenAndCancel": "passed"}
     finally:
         if process.poll() is None:
