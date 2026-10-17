@@ -98,7 +98,8 @@ def main() -> None:
                 if destination.stat().st_size != addition["bytes"] or digest(destination) != addition["sha256"]:
                     raise ValueError("Additional product content hash mismatch")
             module = payload / product["modulePath"]
-            if digest(module) != product["original"]["vst3Sha256"]:
+            module_sha = product.get("compiled", {}).get("moduleSha256", product["original"]["vst3Sha256"])
+            if digest(module) != module_sha:
                 raise ValueError("Audited plugin module changed")
             # The dependency is supplied as a pinned Microsoft-signed input.
             redist = root / "tools/VC_redist.x64.exe"
@@ -152,6 +153,7 @@ def main() -> None:
             (final.parent / "candidate.json").write_text(json.dumps({
                 "slug": slug, "sha256": digest(final), "sizeBytes": final.stat().st_size,
                 "buildInputSha256": product["buildInputSha256"], "payloadFiles": list(expected.values()),
+                "vst3Sha256": module_sha, "compilation": product.get("compiled"),
                 "validation": {"archiveIntegrity": "passed", "payloadHashes": "passed"}}, indent=2) + "\n")
             for file in (final, final.parent / "candidate.json"):
                 transfer("put", f"{output_prefix('windows', slug)}/{file.name}", file)
@@ -161,6 +163,8 @@ def main() -> None:
             from test_windows_wizard import validate_wizard
             installation.update(validate_wizard(final, root, output))
             record = {**product["original"], "sizeBytes": final.stat().st_size, "sha256": digest(final),
+                      "vst3Sha256": module_sha, "compilation": product.get("compiled"),
+                      "sourceSnapshot": product.get("compiled", {}).get("sourceSnapshot", product["original"]["sourceSnapshot"]),
                       "auditedBuildInputSha256": product["buildInputSha256"], "payloadFiles": list(expected.values()),
                       "validation": {"archiveIntegrity": "passed", "payloadHashes": "passed", "moduleHash": "passed",
                                      "currentBuildInputsMatch": True, **installation, "activation": "pending"},

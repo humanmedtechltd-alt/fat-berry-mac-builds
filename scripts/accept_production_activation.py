@@ -80,22 +80,49 @@ def main():
                     raise subprocess.CalledProcessError(process.returncode, args)
 
             config = {**index["product"], "apiOrigin": "https://fatberrydsp.com", "keygenPublicKey": index["keygenPublicKey"]}
+            config["knownFailureMessages"] = index.get("knownFailureMessages", [])
             architectures = ["arm64", "x86_64"] if platform == "macos" else ["x64"]
             if platform == "macos":
-                run([sys.executable, "-m", "venv", str(work / "tools")])
-                run([str(work / "tools/bin/pip"), "install", "cmake==4.2.3", "ninja"], timeout=600)
-                cmake = str(work / "tools/bin/cmake")
-                run([cmake, "-S", str(work / "tooling/acceptance"), "-B", str(work / "probe-build"), "-G", "Xcode",
+                cached = selected.get("compiledProbe")
+                if cached:
+                    if cached.get("probeBuildFingerprint") != selected["probeBuildFingerprint"]:
+                        raise ValueError("The compiled production probe has stale source inputs")
+                    archive = work / "activation-probe.tar.gz"
+                    transfer("get", "input/" + cached["file"], archive)
+                    if digest(archive) != cached["sha256"]:
+                        raise ValueError("The compiled production probe changed")
+                    destination = work / "probe-cache"
+                    destination.mkdir()
+                    with tarfile.open(archive) as data:
+                        if sorted(data.getnames()) != ["FatBerryActivationProbe", "fatberry-keychain-store"]:
+                            raise ValueError("Unexpected files in the private production probe")
+                        data.extractall(destination, filter="data")
+                    probe = destination / "FatBerryActivationProbe"
+                else:
+                    run([sys.executable, "-m", "venv", str(work / "tools")])
+                    run([str(work / "tools/bin/pip"), "install", "cmake==4.2.3", "ninja"], timeout=600)
+                    cmake = str(work / "tools/bin/cmake")
+                    run([cmake, "-S", str(work / "tooling/acceptance"), "-B", str(work / "probe-build"), "-G", "Xcode",
                      "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0",
                      "-DFB_JUCE_ROOT=" + str(work / "juce"), "-DFB_LICENSING_CLIENT_ROOT=" + str(work / "client"),
                      "-DFATBERRY_LICENSING_SNAPSHOT_SHA256=" + selected["licensingSnapshot"],
-                     "-DFATBERRY_SODIUM_MACOS_SHA256=" + index["sodiumSha256"], "-DFATBERRY_LICENSING_BUILD_TESTS=OFF"], timeout=1200)
-                run([cmake, "--build", str(work / "probe-build"), "--config", "Release", "--target", "FatBerryActivationProbe", "--parallel", "3"], timeout=1800)
-                probe = Path((work / "probe-build/probe-Release.txt").read_text())
+                         "-DFATBERRY_SODIUM_MACOS_SHA256=" + index["sodiumSha256"], "-DFATBERRY_LICENSING_BUILD_TESTS=OFF"], timeout=1200)
+                    run([cmake, "--build", str(work / "probe-build"), "--config", "Release", "--target", "FatBerryActivationProbe", "--parallel", "3"], timeout=1800)
+                    probe = Path((work / "probe-build/probe-Release.txt").read_text())
                 for path in (probe.parent / "fatberry-keychain-store", probe):
                     run(["lipo", str(path), "-verify_arch", "arm64", "x86_64"])
                     run(["codesign", "--force", "--sign", "-", str(path)])
                     run(["codesign", "--verify", "--strict", str(path)])
+                if "probeBuildFingerprint" in selected and not cached:
+                    archive = work / "activation-probe.tar.gz"
+                    with tarfile.open(archive, "w:gz", compresslevel=3) as data:
+                        data.add(probe, arcname="FatBerryActivationProbe")
+                        data.add(probe.parent / "fatberry-keychain-store", arcname="fatberry-keychain-store")
+                    metadata = work / "activation-probe.json"
+                    metadata.write_text(json.dumps({"probeBuildFingerprint": selected["probeBuildFingerprint"],
+                                                    "sha256": digest(archive), "bytes": archive.stat().st_size}) + "\n")
+                    for artifact in (archive, metadata):
+                        transfer("put", f"{remote}/{artifact.name}", artifact)
                 mount = work / "mounted"
                 mount.mkdir()
                 run(["hdiutil", "attach", str(installer), "-nobrowse", "-readonly", "-mountpoint", str(mount)])
