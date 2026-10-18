@@ -130,6 +130,15 @@ def main() -> None:
             from public_sdk_inputs import restore
             restore(source, product["sourceSnapshot"], run)
             run(sys.executable, str(tooling / "tools/verify_source_snapshot.py"), str(source), product["sourceSnapshot"])
+            # Check frozen runtime inputs before spending time compiling. Local
+            # repository paths do not exist in the runner's flattened capture.
+            for entry in product.get('supportFiles', []):
+                if entry.get('generated') is True:
+                    continue
+                support_file = Path(entry['source'].replace('{root}', str(root))).resolve()
+                if (not support_file.is_relative_to(root) or not support_file.is_file()
+                        or support_file.stat().st_size != entry['bytes'] or digest(support_file) != entry['sha256']):
+                    raise ValueError('Frozen product support input is absent or changed: ' + entry['name'])
             framework_arguments = []
             toolchain = subprocess.check_output(["xcodebuild", "-version"], text=True).strip()
             cached = product.get("compiledCache")
