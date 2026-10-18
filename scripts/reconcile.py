@@ -143,6 +143,18 @@ def attach_production_result(root: Path, row: dict) -> dict:
     return row
 
 
+def attach_publication_result(root: Path, row: dict) -> dict:
+    # Written by the trusted publisher only after customer GET/hash checks.
+    proof = root / 'publication-status.json'
+    if not proof.is_file() or not row.get('sha256'):
+        return row
+    publication = json.loads(proof.read_text()).get('products', {}).get(row['slug'])
+    if (publication and publication.get('status') == 'published'
+            and publication.get('installers', {}).get(row['platform']) == row['sha256']):
+        row.update(status='published', stage='customer-downloads-verified', publication=publication)
+    return row
+
+
 def main() -> None:
     import fcntl
     parser = argparse.ArgumentParser()
@@ -178,7 +190,7 @@ def main() -> None:
                 except Exception as error:
                     rows.append({"slug": product["slug"], "name": product["name"], "status": "rejected",
                                  "platform": "windows", "stage": str(error)})
-        rows = [attach_production_result(root, row) for row in rows]
+        rows = [attach_publication_result(root, attach_production_result(root, row)) for row in rows]
         counts = {state: sum(r["status"] == state for r in rows) for state in sorted({r["status"] for r in rows})}
         report = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   "expectedProducts": 52, "configuredProducts": len({r['slug'] for r in rows}),
@@ -196,7 +208,7 @@ def main() -> None:
         temporary.chmod(0o600)
         os.replace(temporary, root / "report.md")
         issues = ["# Something you need to do", "", f"Updated automatically: {report['updatedAt']}", "",
-                  "Release acceptance is incomplete. No candidate is a published release.", ""]
+                  "Release acceptance is incomplete. Published entries have passed the trusted gate and customer download verification; other candidates remain private.", ""]
         for row in rows:
             if row["status"] in {"failed", "rejected", "blocked", "interrupted", "acceptance-failed"}:
                 issues.append(f"- [ ] {row['name']} ({row['platform']}): {row['status']} — {row['stage']}" +
