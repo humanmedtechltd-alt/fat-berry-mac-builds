@@ -146,9 +146,11 @@ def attach_production_result(root: Path, row: dict) -> dict:
 def attach_publication_result(root: Path, row: dict) -> dict:
     # Written by the trusted publisher only after customer GET/hash checks.
     proof = root / 'publication-status.json'
-    if not proof.is_file() or not row.get('sha256'):
+    if not proof.is_file():
         return row
     publication = json.loads(proof.read_text()).get('products', {}).get(row['slug'])
+    if publication and publication.get('status') == 'published':
+        row['publishedInstallerSha256'] = publication.get('installers', {}).get(row['platform'])
     if (publication and publication.get('status') == 'published'
             and publication.get('installers', {}).get(row['platform']) == row['sha256']):
         row.update(status='published', stage='customer-downloads-verified', publication=publication)
@@ -201,15 +203,20 @@ def main() -> None:
                     if (product['slug'], platform) not in existing:
                         rows.append({'slug': product['slug'], 'name': product['name'], 'platform': platform,
                                      'status': 'queued', 'stage': 'awaiting-explicit-contract-capture'})
+        rows = [attach_publication_result(root, row) for row in rows]
+        published_coverage = {platform: sum(bool(row.get('publishedInstallerSha256')) for row in rows if row['platform']==platform)
+                              for platform in ['windows','macos']}
         counts = {state: sum(r["status"] == state for r in rows) for state in sorted({r["status"] for r in rows})}
         report = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   "expectedProducts": 52, "configuredProducts": len({r['slug'] for r in rows}),
                   "platformCoverage": {platform: sum(r.get("platform") == platform for r in rows) for platform in ("windows", "macos")}, "counts": counts,
-                  "products": rows, "publication": "Only candidates passing the complete release acceptance gate may be published."}
+                  "products": rows, "acceptedPublishedCoverage": published_coverage,
+                  "publication": "Only candidates passing the complete release acceptance gate may be published."}
         atomic_json(root / "report.json", report)
         lines = ["# Fat Berry unattended installer queue", "", f"Updated: {report['updatedAt']}", "",
                  "Existing VPS; standard public GitHub Actions Mac runners; no model polling.", "",
-                 f"Configured Windows: {report['platformCoverage']['windows']}/52; Mac: {report['platformCoverage']['macos']}/52. " + ", ".join(f"{k}: {v}" for k, v in counts.items()), ""]
+                 f"Accepted live releases: Windows {published_coverage['windows']}/52; Mac {published_coverage['macos']}/52.",
+                 f"Tracked Windows: {report['platformCoverage']['windows']}/52; Mac: {report['platformCoverage']['macos']}/52. " + ", ".join(f"{k}: {v}" for k, v in counts.items()), ""]
         for row in rows:
             lines.append(f"- **{row['name']} ({row['platform']})**: {row['status']} — {row['stage']}" +
                          (f" ([build]({row['runUrl']}))" if row.get("runUrl") else ""))
