@@ -121,7 +121,25 @@ def inspect_windows(root: Path, product: dict) -> dict:
             if hashlib.file_digest(stream, "sha256").hexdigest() != release["sha256"]:
                 raise ValueError("Windows candidate checksum mismatch")
         atomic_json(proof_path, proof)
-    row.update(status="candidate-verified", stage="release-acceptance", validation=release.get("validation", {}))
+    row.update(status="candidate-verified", stage="release-acceptance", sha256=release["sha256"], validation=release.get("validation", {}))
+    return row
+
+
+def attach_production_result(root: Path, row: dict) -> dict:
+    if row.get('status') != 'candidate-verified' or not row.get('sha256'):
+        return row
+    paths = sorted((root / 'output/diagnostics').glob('*/activation/' + row['platform'] + '/status.json'),
+                   key=lambda value: int(value.parts[-4]) if value.parts[-4].isdigit() else -1, reverse=True)
+    for path in paths:
+        result = json.loads(path.read_text())
+        if result.get('slug') != row['slug'] or result.get('installerSha256') != row['sha256']:
+            continue
+        row['productionAcceptance'] = {field: result.get(field) for field in ('status', 'stage', 'runUrl', 'inputIndexSha256', 'validation')}
+        if result.get('status') in ('failed', 'interrupted'):
+            row.update(status='acceptance-failed', stage='production-activation', runUrl=result.get('runUrl'))
+        else:
+            row['stage'] = 'publication-gate-pending' if result.get('status') == 'passed' else 'production-activation'
+        break
     return row
 
 
@@ -160,6 +178,7 @@ def main() -> None:
                 except Exception as error:
                     rows.append({"slug": product["slug"], "name": product["name"], "status": "rejected",
                                  "platform": "windows", "stage": str(error)})
+        rows = [attach_production_result(root, row) for row in rows]
         counts = {state: sum(r["status"] == state for r in rows) for state in sorted({r["status"] for r in rows})}
         report = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   "expectedProducts": 52, "configuredProducts": len({r['slug'] for r in rows}),
@@ -179,7 +198,7 @@ def main() -> None:
         issues = ["# Something you need to do", "", f"Updated automatically: {report['updatedAt']}", "",
                   "Release acceptance is incomplete. No candidate is a published release.", ""]
         for row in rows:
-            if row["status"] in {"failed", "rejected", "blocked", "interrupted"}:
+            if row["status"] in {"failed", "rejected", "blocked", "interrupted", "acceptance-failed"}:
                 issues.append(f"- [ ] {row['name']} ({row['platform']}): {row['status']} — {row['stage']}" +
                               (f". Diagnostics: {row['runUrl']}" if row.get("runUrl") else ""))
         atomic_issue = root / "Something you need to do.md.next"

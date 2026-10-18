@@ -204,6 +204,20 @@ def main():
             check("deactivate", architectures[0])
             deactivated = True
             check("verify-denied", architectures[-1])
+            if platform == "macos":
+                run(["sudo", "installer", "-pkg", str(packages[0]), "-target", "/"], timeout=600)
+                for entry in candidate["payloadFiles"]:
+                    path = Path("/") / entry["path"]
+                    if path.stat().st_size != entry["bytes"] or digest(path) != entry["sha256"]:
+                        raise ValueError("Reinstallation changed the product payload")
+                status["validation"]["reinstall"] = "passed"
+                uninstallers = list(mount.glob("Uninstall *.command"))
+                if len(uninstallers) != 1:
+                    raise ValueError("The actual Mac download lacks its product-specific uninstaller")
+                run(["sudo", "/bin/sh", str(uninstallers[0])], timeout=120)
+                if any((Path("/") / entry["path"]).exists() for entry in candidate["payloadFiles"]):
+                    raise ValueError("Mac uninstall left installed product payload files")
+                status["validation"]["uninstall"] = "passed"
             status["status"] = "passed"
     except Exception as error:
         with (work / "acceptance.log").open("a", encoding="utf-8") as log:

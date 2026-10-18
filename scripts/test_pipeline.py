@@ -6,11 +6,24 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from reconcile import inspect, inspect_windows, status_path
+from reconcile import inspect, inspect_windows, status_path, attach_production_result
 from compilation_identity import fingerprint
 
 
 class ReleasePipelineTests(unittest.TestCase):
+    def test_activation_failure_tracks_exact_installer_and_latest_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for run, sha, state in [(10, 'current', 'failed'), (11, 'old-installer', 'passed')]:
+                folder = root / f'output/diagnostics/{run}/activation/macos'
+                folder.mkdir(parents=True)
+                (folder / 'status.json').write_text(json.dumps({'slug': 'big', 'installerSha256': sha, 'status': state}))
+            row = {'slug': 'big', 'platform': 'macos', 'status': 'candidate-verified', 'sha256': 'current'}
+            self.assertEqual(attach_production_result(root, dict(row))['status'], 'acceptance-failed')
+            folder = root / 'output/diagnostics/12/activation/macos'
+            folder.mkdir(parents=True)
+            (folder / 'status.json').write_text(json.dumps({'slug': 'big', 'installerSha256': 'current', 'status': 'passed'}))
+            self.assertEqual(attach_production_result(root, row)['stage'], 'publication-gate-pending')
     def test_windows_report_selects_exact_packaging_input_and_fresh_module(self):
         import hashlib
         with tempfile.TemporaryDirectory() as directory:
