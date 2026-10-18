@@ -73,6 +73,14 @@ def main():
                     if platform == "macos":
                         os.killpg(process.pid, signal.SIGKILL)
                     else:
+                        debugger = work / 'windows-debugger/cdb.exe'
+                        if debugger.is_file():
+                            try:
+                                with (work / ('timeout-stack-' + str(process.pid) + '.log')).open('w') as stack:
+                                    subprocess.run([str(debugger), '-pv', '-p', str(process.pid), '-c', '~* kb; lm; q'],
+                                                   stdout=stack, stderr=stack, timeout=45)
+                            except Exception as error:
+                                log.write('Native timeout stack capture failed: ' + type(error).__name__ + '\n')
                         subprocess.run(["taskkill.exe", "/PID", str(process.pid), "/T", "/F"], stdout=log, stderr=log, timeout=30, check=False)
                     process.wait(timeout=30)
                     raise
@@ -240,6 +248,28 @@ def main():
         with (work / "acceptance.log").open("a", encoding="utf-8") as log:
             log.write(f"\n{type(error).__name__}: {error}\n")
     finally:
+        if platform == 'macos' and status['status'] != 'passed':
+            # The helper's stdout can contain a device secret. Record only its
+            # size, return code and allowlisted OS status numbers, never bytes.
+            try:
+                helpers = [probe.parent / 'fatberry-keychain-store']
+                if 'bundles' in locals(): helpers += [p / 'Contents/Resources/fatberry-keychain-store' for p in bundles]
+                results = []
+                for helper in helpers:
+                    if not helper.is_file(): continue
+                    for architecture in ['arm64', 'x86_64']:
+                        try:
+                            result = subprocess.run(['arch', '-' + architecture, str(helper), 'load'],
+                                input=b'', capture_output=True, timeout=15)
+                            codes = re.findall(rb'Keychain error (-?\d+)', result.stderr)
+                            results.append({'helper': str(helper.relative_to(work)) if helper.is_relative_to(work) else str(helper),
+                                'sha256': digest(helper), 'architecture': architecture, 'exitCode': result.returncode,
+                                'secretBytesReturned': len(result.stdout), 'keychainStatus': int(codes[-1]) if codes else None})
+                        except subprocess.TimeoutExpired:
+                            results.append({'architecture': architecture, 'status': 'helper-timeout'})
+                (work / 'keychain-failure-result.json').write_text(json.dumps(results, indent=2) + '\n')
+            except Exception as error:
+                status['keychainDiagnostics'] = type(error).__name__
         if activated and not deactivated:
             try:
                 with (work / "acceptance.log").open("a", encoding="utf-8") as log:
