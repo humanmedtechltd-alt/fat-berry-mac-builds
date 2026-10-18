@@ -198,6 +198,11 @@ def main():
                 configuration.write_text(json.dumps(current))
                 report = work / (name + "-result.json")
                 command = (["arch", "-" + architecture] if platform == "macos" else []) + [str(probe), str(configuration), action, str(report)]
+                if platform == 'macos' and action == 'validate-plugin' and index.get('macNativeStacks'):
+                    command = ['arch', '-' + architecture, 'lldb', '--batch', '--no-lldbinit',
+                        '-o', 'run', '-k', 'thread backtrace all', '-k', 'image list', '-k', 'quit 1',
+                        '-o', 'script import lldb; p=lldb.debugger.GetSelectedTarget().GetProcess(); lldb.debugger.HandleCommand("quit " + str(p.GetExitStatus() if p.GetState()==lldb.eStateExited else 1))',
+                        '--', str(probe), str(configuration), action, str(report)]
                 run(command, secret=(key + "\n").encode() if action == "activate" else None)
                 result = json.loads(report.read_text())
                 if result.get("status") != "passed":
