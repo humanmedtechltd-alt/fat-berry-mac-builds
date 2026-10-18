@@ -94,6 +94,30 @@ def inspect_bundles(bundles, minimum):
     return records
 
 
+def wait_for_audio_component(component, architecture, log, *, deadline_seconds=60):
+    """Wait for asynchronous AU discovery, then let the caller validate once.
+
+    A missing registry entry is not a plugin validation result. Keep all discovery
+    output and fail on the deadline; never retry a failed auval validation.
+    """
+    import time
+    identity = [component[key] for key in ('type', 'subtype', 'manufacturer')]
+    deadline = time.monotonic() + deadline_seconds
+    while True:
+        result = subprocess.run(['arch', '-' + architecture, '/usr/bin/auval', '-a'],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                timeout=30, text=True)
+        log.write(result.stdout)
+        log.flush()
+        if result.returncode:
+            raise subprocess.CalledProcessError(result.returncode, result.args)
+        if any(line.split()[:3] == identity for line in result.stdout.splitlines()):
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError('Installed Audio Unit was not discovered: ' + ' '.join(identity))
+        time.sleep(min(2, max(0, deadline - time.monotonic())))
+
+
 def exercise_recovery(mount, bundles, run):
     recovery = mount / 'Approve installed Fat Berry plugins.command'
     expected = '#!/bin/sh\nset -eu\n' + '\n'.join(
