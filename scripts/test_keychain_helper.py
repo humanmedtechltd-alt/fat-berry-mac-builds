@@ -32,6 +32,14 @@ def main():
         with tarfile.open(archive) as tar:
             tar.extractall(source, filter="data")
         with log_path.open("w") as log:
+            lock_test = root / "lock-test"
+            subprocess.run(["xcrun", "clang++", "-std=c++20", "-Wall", "-Wextra", "-Werror",
+                            "-arch", "arm64", "-arch", "x86_64", "-mmacosx-version-min=11.0",
+                            str(source / "tests/PosixRecursiveFileLock.cpp"), "-o", str(lock_test)],
+                           check=True, stdout=log, stderr=log, timeout=120)
+            for architecture in ("arm64", "x86_64"):
+                subprocess.run(["arch", "-" + architecture, str(lock_test)],
+                               check=True, stdout=log, stderr=log, timeout=20)
             helper = root / "helper"
             subprocess.run(["xcrun", "clang++", "-std=c++17", "-arch", "arm64", "-arch", "x86_64",
                             "-mmacosx-version-min=11.0", "-framework", "Security", "-framework", "CoreFoundation",
