@@ -48,4 +48,14 @@ def main():
     if any(p['privateJuceExports'] for p in results):raise SystemExit(1)
 
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    try:
+        main()
+    except Exception as error:
+        root=Path('work').resolve();root.mkdir(exist_ok=True)
+        result=root/'result.json';result.write_text(json.dumps({'status':'failed','errorType':type(error).__name__})+'\n')
+        remote='output/diagnostics/'+os.environ['GITHUB_RUN_ID']+'/symbols/'
+        for path in (root/'symbols.log',result):
+            if path.is_file():transfer('put',remote+path.name,path)
+        print('Actual installer symbol audit failed; diagnostics remain private')
+        raise SystemExit(1)
