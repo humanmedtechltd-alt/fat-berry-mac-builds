@@ -30,4 +30,13 @@ def write_script(product: dict, runtime: dict, tooling: Path, design: Path, payl
         lines += [define("FatBerryVcRedistPath", str(redist)), define("FatBerryVcRedistSha256", runtime["sha256"])]
         lines += [f"#define FatBerryVc{name} {value}" for name, value in zip(("Major", "Minor", "Build", "Revision"), runtime["version"].split("."))]
         lines += [f'#include "{tooling / "packaging/windows/FatBerryVcRuntime.isi"}"']
+    if product.get("webView2Runtime"):
+        webview = product["webView2Runtime"]
+        bootstrapper = tooling / webview["toolingPath"]
+        if not bootstrapper.resolve().is_relative_to(tooling.resolve()):
+            raise ValueError("WebView2 bootstrapper escapes the private tooling snapshot")
+        lines += [define("FatBerryWebView2BootstrapperPath", str(bootstrapper)),
+                  define("FatBerryWebView2BootstrapperSha256", webview["sha256"]),
+                  f'#define FatBerryWebView2MinimumMajor {int(webview["minimumMajor"])}',
+                  f'#include "{tooling / "packaging/windows/FatBerryWebView2Runtime.isi"}"']
     script.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")

@@ -14,7 +14,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: fatberry-macos-release
+  group: ${{ inputs.platform == 'windows' && 'fatberry-windows-activation' || 'fatberry-macos-release' }}
   queue: max
   cancel-in-progress: false
 jobs:

@@ -111,6 +111,15 @@ def main() -> None:
             run(powershell, "-NoProfile", "-Command",
                 "$s=Get-AuthenticodeSignature -LiteralPath '" + str(redist).replace("'", "''") +
                 "'; if($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'Microsoft Corporation'){exit 1}")
+            if product.get("webView2Runtime"):
+                dependency = product["webView2Runtime"]
+                bootstrapper = (root / "fat-berry-release-tooling" / dependency["toolingPath"]).resolve()
+                if (not bootstrapper.is_relative_to(root / "fat-berry-release-tooling")
+                        or bootstrapper.stat().st_size != dependency["bytes"] or digest(bootstrapper) != dependency["sha256"]):
+                    raise ValueError("Microsoft WebView2 bootstrapper differs from the product contract")
+                run(powershell, "-NoProfile", "-Command",
+                    "$s=Get-AuthenticodeSignature -LiteralPath '" + str(bootstrapper).replace("'", "''") +
+                    "'; if($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'Microsoft Corporation'){exit 1}")
             final = root / "release/installer-win.exe"
             final.parent.mkdir()
             if product["needsRepackage"]:
@@ -147,6 +156,9 @@ def main() -> None:
             if product["runtimeImports"] and product["needsRepackage"]:
                 if digest(verify / "{tmp}/FatBerry-VC_redist.x64.exe") != index["runtime"]["sha256"]:
                     raise ValueError("Final installer lacks the verified runtime")
+            if product.get("webView2Runtime"):
+                if digest(verify / "{tmp}/FatBerry-WebView2Setup.exe") != product["webView2Runtime"]["sha256"]:
+                    raise ValueError("Final installer lacks the verified WebView2 bootstrapper")
             checkpoint("install-upgrade-scan-uninstall")
             # Save the exact verified candidate before GUI/installation checks.
             # A later acceptance fix must not force another artwork/package build.

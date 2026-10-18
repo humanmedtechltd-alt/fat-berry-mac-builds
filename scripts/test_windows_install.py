@@ -71,6 +71,52 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
             free.restype = ctypes.c_void_p
             free(values)
 
+    def webview_versions():
+        versions = []
+        for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            for view in (winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY):
+                try:
+                    with winreg.OpenKey(hive, r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+                                        0, winreg.KEY_READ | view) as key:
+                        version = winreg.QueryValueEx(key, "pv")[0]
+                    if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", version):
+                        continue
+                    for folder in webview_roots:
+                        if (folder / version / "msedgewebview2.exe").is_file():
+                            versions.append(version)
+                except FileNotFoundError:
+                    pass
+        return sorted(set(versions))
+
+    webview_roots = [Path(os.environ["ProgramFiles(x86)"]) / "Microsoft/EdgeWebView/Application",
+                     Path(os.environ["LOCALAPPDATA"]) / "Microsoft/EdgeWebView/Application"]
+    webview_before = webview_versions() if product.get("webView2Runtime") else []
+    if product.get("webView2Runtime"):
+        # This is a disposable hosted desktop, never a customer or developer PC.
+        # Use Microsoft's own uninstaller; never erase files/registry to pretend
+        # the dependency is absent.
+        run("taskkill.exe", "/IM", "msedgewebview2.exe", "/T", "/F", permitted=(0, 128))
+        for root_index, folder in enumerate(webview_roots):
+            if not folder.exists():
+                continue
+            for version_folder in list(folder.iterdir()):
+                if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", version_folder.name):
+                    continue
+                setup_exe = (version_folder / "Installer/setup.exe").resolve()
+                if not setup_exe.is_file():
+                    continue
+                if not setup_exe.is_relative_to(folder.resolve()):
+                    raise ValueError("WebView2 uninstaller escapes its runtime directory")
+                quoted = str(setup_exe).replace("'", "''")
+                run("pwsh.exe", "-NoProfile", "-Command",
+                    f"$s=Get-AuthenticodeSignature -LiteralPath '{quoted}';if($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'Microsoft Corporation'){{exit 1}}")
+                run(str(setup_exe), "--uninstall", "--msedgewebview", "--force-uninstall",
+                    *(["--system-level"] if root_index == 0 else []), permitted=(0, 19, 1605, 3010))
+        if webview_versions():
+            raise ValueError("WebView2 remained installed; absence-to-editor acceptance is unproven")
+        log.write("WEBVIEW2 BEFORE INSTALL: absent after Microsoft uninstall\n")
+        log.flush()
+
     system = Path(os.environ["SystemRoot"]) / "System32"
     runtime_names = product["runtimeImports"]
     before = [name for name in runtime_names if (system / name).exists()]
@@ -132,6 +178,10 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
             if not path.is_file() or path.stat().st_size != entry["bytes"] or digest(path) != entry["sha256"]:
                 raise ValueError("Installed file hash differs from the expected product payload")
     verify()
+    webview_after = webview_versions() if product.get("webView2Runtime") else []
+    if product.get("webView2Runtime") and not any(
+            int(version.split('.')[0]) >= product["webView2Runtime"]["minimumMajor"] for version in webview_after):
+        raise ValueError("The installer did not provision the required WebView2 editor runtime")
     if not all((system / name).is_file() for name in runtime_names):
         raise ValueError("Required Visual C++ runtime DLLs remain absent after installation")
     module = next(path for path in installed if path.name.endswith(".vst3") and path.is_file())
@@ -156,4 +206,6 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
         raise ValueError("Uninstall left the product module installed")
     return {"cleanInstall": "passed", "installedPayloadHashes": "passed", "reinstall": "passed", "uninstall": "passed",
             "pluginval": "passed-x64-level5", "runtimeBeforeTest": before,
+            **({"webView2Bootstrap": "passed-from-absent-desktop", "webView2BeforeTest": webview_before,
+                "webView2InstalledVersions": webview_after} if product.get("webView2Runtime") else {}),
             "runtimeBootstrap": "passed-from-absent" if runtime_names and absent_before_install else "not-required" if not runtime_names else "pending-runtime-remained-present"}

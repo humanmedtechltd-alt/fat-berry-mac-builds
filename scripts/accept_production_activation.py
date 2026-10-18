@@ -168,6 +168,19 @@ def main():
                 nonlocal activated
                 check("activate", architectures[0])
                 activated = True
+                if platform == "macos":
+                    # Diagnose the actual production helper without disclosing
+                    # the device secret returned on stdout.
+                    import re
+                    helper_results = {}
+                    for architecture in architectures:
+                        result = subprocess.run(["arch", "-" + architecture,
+                            str(probe.parent / "fatberry-keychain-store"), "load"],
+                            input=b"", capture_output=True, timeout=15)
+                        codes = re.findall(rb"Keychain error (-?\d+)", result.stderr)
+                        helper_results[architecture] = {"exitCode": result.returncode, "bytes": len(result.stdout),
+                            "keychainStatus": int(codes[-1]) if codes else None}
+                    (work / "keychain-helper-result.json").write_text(json.dumps(helper_results) + "\n")
                 check("verify", architectures[-1])
 
             if platform == "windows":
