@@ -6,6 +6,11 @@ on:
         description: Immutable private source index SHA-256
         required: true
         type: string
+      check:
+        description: Private regression to execute
+        type: choice
+        default: keychain
+        options: [keychain, cpp-portability]
 permissions:
   contents: read
 jobs:
@@ -28,7 +33,11 @@ jobs:
           printf '%s\n' "$RUNNER_SSH_KEY" > "$HOME/.ssh/fatberry-build"
           printf '%s\n' "$RUNNER_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
       - name: Compile and test actual helper privately
+        if: inputs.check != 'cpp-portability'
         run: python3 scripts/test_keychain_helper.py
+      - name: Compile and test a focused private C++ regression
+        if: inputs.check == 'cpp-portability'
+        run: python3 scripts/test_cpp_portability.py
       - name: Remove private files
         if: always()
         run: |
