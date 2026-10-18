@@ -10,7 +10,7 @@ on:
         description: Private regression to execute
         type: choice
         default: keychain
-        options: [keychain, cpp-portability]
+        options: [keychain, cpp-portability, mac-delivery]
 permissions:
   contents: read
 jobs:
@@ -33,11 +33,14 @@ jobs:
           printf '%s\n' "$RUNNER_SSH_KEY" > "$HOME/.ssh/fatberry-build"
           printf '%s\n' "$RUNNER_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
       - name: Compile and test actual helper privately
-        if: inputs.check != 'cpp-portability'
+        if: inputs.check == 'keychain'
         run: python3 scripts/test_keychain_helper.py
       - name: Compile and test a focused private C++ regression
         if: inputs.check == 'cpp-portability'
         run: python3 scripts/test_cpp_portability.py
+      - name: Diagnose actual Mac installer discovery privately
+        if: inputs.check == 'mac-delivery'
+        run: python3 scripts/test_mac_delivery.py
       - name: Remove private files
         if: always()
         run: |
