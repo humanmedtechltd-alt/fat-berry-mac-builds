@@ -23,9 +23,11 @@ def atomic_json(path: Path, value: dict) -> None:
     os.replace(temporary, path)
 
 
-def status_path(root: Path, platform: str, slug: str) -> Path:
+def status_path(root: Path, platform: str, slug: str, input_index: str | None = None) -> Path:
     paths = [p for p in (root / "output/runs").glob(f"*/*/{platform}/{slug}/status.json")
              if p.parts[-5].isdigit() and p.parts[-4].isdigit()]
+    if input_index:
+        paths = [p for p in paths if json.loads(p.read_text()).get('inputIndexSha256') == input_index]
     if paths:
         return max(paths, key=lambda p: (int(p.parts[-5]), int(p.parts[-4])))
     return root / "output" / ("windows" if platform == "windows" else "") / slug / "status.json"
@@ -87,10 +89,13 @@ def inspect(root: Path, product: dict) -> dict:
 def inspect_windows(root: Path, product: dict) -> dict:
     slug = product["slug"]
     row = {"slug": slug, "name": product["name"], "platform": "windows", "status": "queued", "stage": "awaiting-runner"}
-    path = status_path(root, "windows", slug)
+    path = status_path(root, "windows", slug, product.get("inputIndexSha256"))
     if not path.exists():
         return row
     status = json.loads(path.read_text())
+    if product.get("inputIndexSha256") and status.get("inputIndexSha256") != product["inputIndexSha256"]:
+        row.update(stage="awaiting-current-packaging")
+        return row
     if status.get("buildInputSha256") != product["buildInputSha256"]:
         return row
     for field in ("status", "stage", "runUrl", "updatedAt"):
@@ -100,7 +105,7 @@ def inspect_windows(root: Path, product: dict) -> dict:
         return row
     release = json.loads((path.parent / "release.json").read_text())
     if (release.get("auditedBuildInputSha256") != product["buildInputSha256"]
-            or release.get("vst3Sha256") != product["original"]["vst3Sha256"]
+            or release.get("vst3Sha256") != product.get("compiled", {}).get("moduleSha256", product["original"]["vst3Sha256"])
             or any(release.get(field) != product["original"][field] for field in
                    ("slug", "productId", "version", "keygenProductId", "keygenPolicyId", "licensingClientCommit"))):
         raise ValueError("Windows candidate differs from the audited product identity")
@@ -134,6 +139,10 @@ def main() -> None:
             if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", product["slug"]):
                 raise ValueError("Invalid configured slug")
             try:
+                if not product.get("framework"):
+                    rows.append({"slug": product["slug"], "name": product["name"], "platform": "macos",
+                                 "status": "queued", "stage": "awaiting-explicit-contract-capture"})
+                    continue
                 # Global dependencies can change while an unselected product's
                 # stored fingerprint still describes an older batch.
                 product = {**product, "compilationFingerprint": fingerprint(index, product)}
@@ -144,9 +153,10 @@ def main() -> None:
         windows_index = root / "input/windows-index.json"
         if windows_index.exists():
             windows = json.loads(windows_index.read_text())
+            windows_sha = hashlib.sha256(windows_index.read_bytes()).hexdigest()
             for product in windows["products"]:
                 try:
-                    rows.append(inspect_windows(root, product))
+                    rows.append(inspect_windows(root, {**product, "inputIndexSha256": windows_sha}))
                 except Exception as error:
                     rows.append({"slug": product["slug"], "name": product["name"], "status": "rejected",
                                  "platform": "windows", "stage": str(error)})

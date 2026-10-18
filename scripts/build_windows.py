@@ -175,6 +175,8 @@ def main() -> None:
             from test_windows_wizard import validate_wizard
             installation.update(validate_wizard(final, root, output))
             record = {**product["original"], "sizeBytes": final.stat().st_size, "sha256": digest(final),
+                      "sourceCommit": product.get("compiled", {}).get("sourceCommit", product["original"]["sourceCommit"]),
+                      "inputIndexSha256": index_hash,
                       "vst3Sha256": module_sha, "compilation": product.get("compiled"),
                       "sourceSnapshot": product.get("compiled", {}).get("sourceSnapshot", product["original"]["sourceSnapshot"]),
                       "auditedBuildInputSha256": product["buildInputSha256"], "payloadFiles": list(expected.values()),

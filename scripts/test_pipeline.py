@@ -6,11 +6,32 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from reconcile import inspect, status_path
+from reconcile import inspect, inspect_windows, status_path
 from compilation_identity import fingerprint
 
 
 class ReleasePipelineTests(unittest.TestCase):
+    def test_windows_report_selects_exact_packaging_input_and_fresh_module(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            folder = root / 'output/runs/10/1/windows/big'
+            folder.mkdir(parents=True)
+            payload = b'fresh-installer'
+            (folder / 'installer-win.exe').write_bytes(payload)
+            identity = {field: field for field in ('slug', 'productId', 'version', 'keygenProductId', 'keygenPolicyId', 'licensingClientCommit')}
+            identity['slug'] = 'big'
+            (folder / 'status.json').write_text(json.dumps({'status': 'candidate', 'buildInputSha256': 'source', 'inputIndexSha256': 'new-package'}))
+            (folder / 'release.json').write_text(json.dumps({**identity, 'vst3Sha256': 'new-module',
+                'auditedBuildInputSha256': 'source', 'sizeBytes': len(payload),
+                'sha256': hashlib.sha256(payload).hexdigest()}))
+            product = {'slug': 'big', 'name': 'BIG', 'buildInputSha256': 'source',
+                       'original': {**identity, 'vst3Sha256': 'old-module'},
+                       'compiled': {'moduleSha256': 'new-module'}, 'inputIndexSha256': 'new-package'}
+            self.assertEqual(inspect_windows(root, product)['status'], 'candidate-verified')
+            product['inputIndexSha256'] = 'different-package'
+            self.assertEqual(inspect_windows(root, product)['status'], 'queued')
+
     def test_continuation_is_claimed_only_once(self):
         for kind in ("activation", "build"):
             with self.subTest(kind=kind):
