@@ -10,7 +10,7 @@ on:
         description: Private regression to execute
         type: choice
         default: keychain
-        options: [keychain, cpp-portability, mac-delivery]
+        options: [keychain, cpp-portability, mac-delivery, mac-symbols]
 permissions:
   contents: read
 jobs:
@@ -41,6 +41,9 @@ jobs:
       - name: Diagnose actual Mac installer discovery privately
         if: inputs.check == 'mac-delivery'
         run: python3 scripts/test_mac_delivery.py
+      - name: Inspect actual installer symbol isolation privately
+        if: inputs.check == 'mac-symbols'
+        run: python3 scripts/test_mac_symbol_isolation.py
       - name: Remove private files
         if: always()
         run: |
