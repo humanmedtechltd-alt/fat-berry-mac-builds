@@ -107,6 +107,8 @@ def main() -> None:
                         source.extractall(destination, filter="data")
                 archive.unlink()
             checkpoint("tools")
+            from private_file_inputs import restore as restore_private_files
+            restore_private_files(root / 'product', product['sourceSnapshot'], product.get('privateFiles', []), transfer)
             run(sys.executable, "-m", "venv", str(root / "tools"))
             run(str(root / "tools/bin/pip"), "install", "cmake==4.2.3", "ninja")
             os.environ["PATH"] = str(root / "tools/bin") + os.pathsep + os.environ["PATH"]
