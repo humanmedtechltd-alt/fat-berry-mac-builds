@@ -11,10 +11,14 @@ on:
         type: choice
         default: both
         options: [both, macos, windows]
+      diagnostic_lane:
+        description: Use the single independent Mac diagnostic lane (dispatch only while total Mac jobs stays at three or fewer)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: ${{ inputs.platform == 'windows' && 'fatberry-windows-activation' || 'fatberry-macos-release' }}
+  group: ${{ inputs.platform == 'windows' && 'fatberry-windows-activation' || inputs.diagnostic_lane && 'fatberry-macos-diagnostic' || 'fatberry-macos-release' }}
   queue: max
   cancel-in-progress: false
 jobs:
