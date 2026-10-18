@@ -151,7 +151,7 @@ def attach_publication_result(root: Path, row: dict) -> dict:
     publication = json.loads(proof.read_text()).get('products', {}).get(row['slug'])
     if publication and publication.get('status') == 'published':
         row['publishedInstallerSha256'] = publication.get('installers', {}).get(row['platform'])
-    if (publication and publication.get('status') == 'published'
+    if (publication and publication.get('status') == 'published' and row.get('sha256')
             and publication.get('installers', {}).get(row['platform']) == row['sha256']):
         row.update(status='published', stage='customer-downloads-verified', publication=publication)
     return row
