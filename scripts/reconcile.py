@@ -191,6 +191,16 @@ def main() -> None:
                     rows.append({"slug": product["slug"], "name": product["name"], "status": "rejected",
                                  "platform": "windows", "stage": str(error)})
         rows = [attach_publication_result(root, attach_production_result(root, row)) for row in rows]
+        scope = index.get('scope', [])
+        if scope:
+            if len(scope) != 52 or len({item['slug'] for item in scope}) != 52:
+                raise ValueError('Release scope must contain exactly the agreed 52 products')
+            existing = {(row['slug'], row['platform']) for row in rows}
+            for product in scope:
+                for platform in ['windows', 'macos']:
+                    if (product['slug'], platform) not in existing:
+                        rows.append({'slug': product['slug'], 'name': product['name'], 'platform': platform,
+                                     'status': 'queued', 'stage': 'awaiting-explicit-contract-capture'})
         counts = {state: sum(r["status"] == state for r in rows) for state in sorted({r["status"] for r in rows})}
         report = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   "expectedProducts": 52, "configuredProducts": len({r['slug'] for r in rows}),
