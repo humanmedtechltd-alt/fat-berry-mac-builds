@@ -8,6 +8,8 @@ def fingerprint(index: dict, product: dict) -> str:
               "vst3Bundle", "auBundle", "manufacturerCode", "pluginCode", "auType", "cmakeArguments",
               "keygenProductId", "keygenPolicyId", "licensingClientCommit")
     value = {field: product[field] for field in fields}
+    if "pythonRequirements" in product:
+        value["pythonRequirements"] = product["pythonRequirements"]
     value["dependencies"] = {d["directory"]: d.get("sourceSnapshot", d["sha256"])
                              for d in [*index["dependencies"], *product.get("dependencies", [])]
                              if d["directory"] not in {"pluginval", "fat-berry-release-tooling"}}

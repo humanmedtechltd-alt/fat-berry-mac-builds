@@ -112,6 +112,12 @@ def main() -> None:
             os.environ["PATH"] = str(root / "tools/bin") + os.pathsep + os.environ["PATH"]
             run("arch", "-x86_64", "/usr/bin/true")
             source = root / "product"
+            if product.get("pythonRequirements"):
+                requirement = product["pythonRequirements"]
+                requirement_file = (source / requirement["path"]).resolve()
+                if not requirement_file.is_relative_to(source) or digest(requirement_file) != requirement["sha256"]:
+                    raise ValueError("The product's pinned Python build requirements changed")
+                run(str(root / "tools/bin/pip"), "install", "-r", str(requirement_file))
             build = root / "build"
             client = root / "fat-berry-licensing-client"
             tooling = root / "fat-berry-release-tooling"
@@ -162,6 +168,7 @@ def main() -> None:
                          "-DFATBERRY_LICENSING_SNAPSHOT_SHA256=" + next(d["sourceSnapshot"] for d in index["dependencies"] if d["directory"] == "fat-berry-licensing-client"),
                          f"-DFATBERRY_RELEASE_TOOLING_DIR={tooling}",
                          "-DSMTG_RUN_VST_VALIDATOR=OFF", "-DSMTG_CREATE_PLUGIN_LINK=OFF",
+                         *([f"-DPython3_EXECUTABLE={root / 'tools/bin/python'}"] if product.get("pythonRequirements") else []),
                          *[arg.replace("{root}", str(root)) for arg in product["cmakeArguments"]], *framework_arguments]
             if not restored:
                 run(*configure)
