@@ -140,6 +140,11 @@ def main():
                         raise ValueError("Actual installed Mac payload differs from the frozen candidate")
                 subprocess.run(["killall", "AudioComponentRegistrar"], stdout=log, stderr=log, timeout=30, check=False)
                 status["validation"] = {"actualPkgCleanInstall": "passed", "installedPayloadHashes": "passed"}
+                from macos_delivery_checks import inspect_bundles, exercise_recovery
+                bundles = [Path('/Library/Audio/Plug-Ins/VST3') / index['product']['vst3Bundle'],
+                           Path('/Library/Audio/Plug-Ins/Components') / index['product']['auBundle']]
+                status['validation']['nestedMachO'] = inspect_bundles(bundles, selected['candidate']['minimumOS'])
+                status['validation'].update(exercise_recovery(mount, bundles, run))
             else:
                 probe = work / "activation-probe.exe"
                 transfer("get", "input/" + selected["probe"]["file"], probe)
