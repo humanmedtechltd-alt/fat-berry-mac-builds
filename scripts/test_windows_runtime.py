@@ -104,13 +104,15 @@ def validate_runtime(request: dict, installer: Path, work: Path, log) -> dict:
     (staging / "check.ps1").write_text(CHECK, encoding="utf-8-sig")
     name = "fatberry-runtime-" + os.environ["GITHUB_RUN_ID"] + "-" + request["slug"]
     try:
-        run("docker", "run", "--rm", "--name", name, "--isolation=process", "--network=none",
+        network = [] if request.get('webView2Runtime', {}).get('requiresNetworkWhenMissing') is True else ['--network=none']
+        run("docker", "run", "--rm", "--name", name, "--isolation=process", *network,
             "--mount", fr"type=bind,source={staging.resolve()},target=C:\acceptance", image,
             "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", r"C:\acceptance\check.ps1", timeout=1200)
         result = json.loads((staging / "result.json").read_text(encoding="utf-8-sig"))
         if result.get("runtimeBootstrap") != "passed-from-absent-container" or result.get("installerSha256") != request["sha256"]:
             raise ValueError("The isolated runtime test did not prove this candidate")
         result["containerImage"] = image
+        result['containerNetwork'] = 'nat-for-required-webview2-bootstrap' if not network else 'none'
         return result
     finally:
         subprocess.run(["docker", "rm", "--force", name], stdout=log, stderr=log, timeout=60, check=False)
