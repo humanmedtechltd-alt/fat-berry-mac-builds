@@ -145,6 +145,17 @@ def main():
                            Path('/Library/Audio/Plug-Ins/Components') / index['product']['auBundle']]
                 status['validation']['nestedMachO'] = inspect_bundles(bundles, selected['candidate']['minimumOS'])
                 status['validation'].update(exercise_recovery(mount, bundles, run))
+                # The registrar can observe the intentionally quarantined AU
+                # while recovery is being exercised. Refresh discovery only
+                # after the delivered command has removed those attributes.
+                subprocess.run(['killall', 'AudioComponentRegistrar'], stdout=log, stderr=log, timeout=30, check=False)
+                import plistlib
+                with (bundles[1] / 'Contents/Info.plist').open('rb') as stream:
+                    component = plistlib.load(stream)['AudioComponents'][0]
+                for architecture in architectures:
+                    run(['arch', '-' + architecture, '/usr/bin/auval', '-v',
+                         component['type'], component['subtype'], component['manufacturer']], timeout=600)
+                status['validation']['auvalAfterQuarantineRecovery'] = 'passed-arm64-x86_64'
             else:
                 probe = work / "activation-probe.exe"
                 transfer("get", "input/" + selected["probe"]["file"], probe)
