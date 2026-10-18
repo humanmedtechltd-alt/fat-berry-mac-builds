@@ -29,6 +29,7 @@ def main():
     mounted = False
     activated = False
     deactivated = False
+    crash_baseline = set((Path.home() / 'Library/Logs/DiagnosticReports').glob('*')) if platform == 'macos' else set()
     try:
         transfer("get", f"input/activation-acceptance-{index_sha}.json", work / "index.json")
         if digest(work / "index.json") != index_sha:
@@ -71,6 +72,12 @@ def main():
                     process.communicate(input=secret, timeout=timeout)
                 except subprocess.TimeoutExpired:
                     if platform == "macos":
+                        try:
+                            subprocess.run(['sample', str(process.pid), '3', '-file',
+                                            str(work / ('timeout-stack-' + str(process.pid) + '.log'))],
+                                           stdout=log, stderr=log, timeout=15, check=False)
+                        except Exception as error:
+                            log.write('Mac timeout sample failed: ' + type(error).__name__ + '\n')
                         os.killpg(process.pid, signal.SIGKILL)
                     else:
                         debugger = work / 'windows-debugger/cdb.exe'
@@ -121,6 +128,14 @@ def main():
                     run(["lipo", str(path), "-verify_arch", "arm64", "x86_64"])
                     run(["codesign", "--force", "--sign", "-", str(path)])
                     run(["codesign", "--verify", "--strict", str(path)])
+                if index.get('macKeychainHelper'):
+                    helper = index['macKeychainHelper']
+                    path = probe.parent / 'fatberry-keychain-store'
+                    transfer('get', 'input/' + helper['file'], path)
+                    if digest(path) != helper['sha256'] or path.stat().st_size != helper['bytes']:
+                        raise ValueError('Production probe shared Keychain helper changed')
+                    path.chmod(0o755)
+                    run(['codesign', '--verify', '--strict', str(path)])
                 if "probeBuildFingerprint" in selected and not cached:
                     archive = work / "activation-probe.tar.gz"
                     with tarfile.open(archive, "w:gz", compresslevel=3) as data:
@@ -249,6 +264,12 @@ def main():
             log.write(f"\n{type(error).__name__}: {error}\n")
     finally:
         if platform == 'macos' and status['status'] != 'passed':
+            # Preserve native OS crash reports privately before VM disposal.
+            # No raw reports or proprietary stack frames enter public logs.
+            for report in set((Path.home() / 'Library/Logs/DiagnosticReports').glob('*')) - crash_baseline:
+                if report.is_file() and report.name.startswith('FatBerryActivationProbe'):
+                    shutil.copy2(report, work / ('native-crash-' + report.name))
+        if platform == 'macos' and status['status'] != 'passed':
             # The helper's stdout can contain a device secret. Record only its
             # size, return code and allowlisted OS status numbers, never bytes.
             try:
@@ -279,7 +300,7 @@ def main():
         if mounted:
             subprocess.run(["hdiutil", "detach", str(work / "mounted")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60, check=False)
         (work / "status.json").write_text(json.dumps(status, indent=2) + "\n")
-        for path in [*work.glob("*.log"), *work.glob("*-result.json"), *work.glob("wizard-geometry.json"), work / "status.json"]:
+        for path in [*work.glob("*.log"), *work.glob("native-crash-*"), *work.glob("*-result.json"), *work.glob("wizard-geometry.json"), work / "status.json"]:
             transfer("put", f"{remote}/{path.name}", path)
         (work / "private-lease.json").unlink(missing_ok=True)
     print(f"Production client and installed {platform} candidate: {status['status']}; diagnostics remain private")
