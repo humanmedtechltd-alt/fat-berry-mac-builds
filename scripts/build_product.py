@@ -114,6 +114,8 @@ def main() -> None:
             source = root / "product"
             if product.get("pythonRequirements"):
                 requirement = product["pythonRequirements"]
+                if requirement.get("pythonVersion") != ".".join(map(str, sys.version_info[:3])):
+                    raise ValueError("The runner Python differs from the product's pinned build interpreter")
                 requirement_file = (source / requirement["path"]).resolve()
                 if not requirement_file.is_relative_to(source) or digest(requirement_file) != requirement["sha256"]:
                     raise ValueError("The product's pinned Python build requirements changed")
