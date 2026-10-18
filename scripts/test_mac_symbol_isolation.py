@@ -17,6 +17,22 @@ def main():
     if digest(root/'index.json')!=identity:raise ValueError('Audit input changed')
     request=json.loads((root/'index.json').read_text())
     with (root/'symbols.log').open('w') as log:
+        if request.get('linkerSelfTest'):
+            source=root/'boundary.cpp'
+            source.write_text('namespace juce { __attribute__((visibility("default"))) int privateImplementation() { return 7; } }\n'
+                              'extern "C" __attribute__((visibility("default"))) int formatEntry() { return juce::privateImplementation(); }\n')
+            symbols=root/'private.txt';symbols.write_text('__Z*4juce*\n')
+            library=root/'boundary.dylib'
+            subprocess.run(['xcrun','clang++','-dynamiclib','-arch','arm64','-arch','x86_64','-fvisibility=hidden',
+                            '-Wl,-unexported_symbols_list,'+str(symbols),str(source),'-o',str(library)],check=True,stdout=log,stderr=log,timeout=60)
+            exports=subprocess.check_output(['nm','-gjU',str(library)],text=True,stderr=log,timeout=20)
+            if '_formatEntry' not in exports or re.search(r'_+Z(N[KVO]?4juce|T[VIS]N4juce)',exports):
+                raise ValueError('The Mac linker did not preserve the format entry and hide private symbols')
+            host=root/'host.cpp';host.write_text('#include <dlfcn.h>\nint main(int n,char** v){if(n!=2)return 1;auto h=dlopen(v[1],RTLD_NOW|RTLD_LOCAL);if(!h)return 2;auto f=(int(*)())dlsym(h,"formatEntry");return !f||f()!=7||dlsym(h,"_ZN4juce21privateImplementationEv")!=nullptr?3:0;}\n')
+            binary=root/'host'
+            subprocess.run(['xcrun','clang++','-arch','arm64','-arch','x86_64',str(host),'-o',str(binary)],check=True,stdout=log,stderr=log,timeout=60)
+            for architecture in ('arm64','x86_64'):
+                subprocess.run(['arch','-'+architecture,str(binary),str(library)],check=True,stdout=log,stderr=log,timeout=20)
         for entry in request['products']:
             if not re.fullmatch('[a-z0-9-]+',entry['slug']):raise ValueError('Invalid product slug')
             work=root/entry['slug'];work.mkdir();dmg=work/'installer.dmg';mount=work/'mounted';mount.mkdir()
