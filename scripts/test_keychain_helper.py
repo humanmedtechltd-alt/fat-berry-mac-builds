@@ -41,9 +41,15 @@ def main():
                 subprocess.run(["arch", "-" + architecture, str(lock_test)],
                                check=True, stdout=log, stderr=log, timeout=20)
             helper = root / "helper"
-            subprocess.run(["xcrun", "clang++", "-std=c++17", "-arch", "arm64", "-arch", "x86_64",
-                            "-mmacosx-version-min=11.0", "-framework", "Security", "-framework", "CoreFoundation",
-                            str(source / "src/MacKeychainStore.mm"), "-o", str(helper)], check=True, stdout=log, stderr=log, timeout=120)
+            variants = []
+            for minimum in ("11.0", "12.0"):
+                binary = root / ("helper-" + minimum)
+                subprocess.run(["xcrun", "clang++", "-std=c++17", "-O3", "-DNDEBUG", "-arch", "arm64", "-arch", "x86_64",
+                                "-mmacosx-version-min=" + minimum, "-framework", "Security", "-framework", "CoreFoundation",
+                                str(source / "src/MacKeychainStore.mm"), "-o", str(binary)], check=True, stdout=log, stderr=log, timeout=120)
+                subprocess.run(["codesign", "--force", "--sign", "-", str(binary)], check=True, stdout=log, stderr=log, timeout=30)
+                variants.append(binary)
+            helper = variants[0]
             old_default = shlex.split(subprocess.check_output(["security", "default-keychain", "-d", "user"], text=True))[0]
             old_search = shlex.split(subprocess.check_output(["security", "list-keychains", "-d", "user"], text=True))
             keychain = root / "isolated.keychain-db"
@@ -82,12 +88,27 @@ def main():
                 security("unlock-keychain", "-p", password, str(keychain))
                 if call(helper, "load") != vector:
                     raise ValueError("Locked-keychain denial replaced the device identity")
-                status = "passed"
             finally:
                 security("default-keychain", "-d", "user", "-s", old_default)
                 security("list-keychains", "-d", "user", "-s", *old_search)
                 if keychain.exists():
                     security("delete-keychain", str(keychain))
+            # A custom keychain can behave differently from the customer's login
+            # keychain. Exercise separately compiled release helpers against the
+            # runner's original default, without changing its trust settings.
+            # Never delete an item unless this test successfully created it.
+            created = False
+            try:
+                call(helper, "load", expected=20)
+                call(helper, "store", vector)
+                created = True
+                for binary in variants:
+                    if call(binary, "load") != vector:
+                        raise ValueError("Default-keychain identity cannot be shared across release builds")
+                status = "passed"
+            finally:
+                if created:
+                    security("delete-generic-password", "-s", "Fat Berry DSP Licensing", "-a", "device-key.v1")
     except Exception as error:
         with log_path.open("a") as log:
             log.write(f"{type(error).__name__}: {error}\n")
