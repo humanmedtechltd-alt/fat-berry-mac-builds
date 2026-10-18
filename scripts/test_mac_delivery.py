@@ -7,7 +7,7 @@ import re
 import subprocess
 import time
 from build_product import transfer, digest
-from macos_delivery_checks import exercise_recovery
+from macos_delivery_checks import exercise_recovery, wait_for_audio_component
 
 
 def main():
@@ -43,9 +43,13 @@ def main():
                 present = any(line.split()[:3] == codes for line in result.stdout.splitlines())
                 status['observations'][stage] = {'discovered': present, 'exitCode': result.returncode}
                 return present
+            wait_for_audio_component(component, 'arm64', log)
             observe('actual-install')
             exercise_recovery(mount, bundles, run)
+            wait_for_audio_component(component, 'arm64', log)
             observe('delivered-recovery')
+            for architecture in ['arm64', 'x86_64']:
+                run(['arch', '-' + architecture, '/usr/bin/auval', '-v', *codes], timeout=120)
             subprocess.run(['killall', '-9', 'AudioComponentRegistrar'], stdout=log, stderr=log, timeout=30)
             run(['sudo', 'touch', str(bundles[1]), str(bundles[1].parent)])
             time.sleep(3)

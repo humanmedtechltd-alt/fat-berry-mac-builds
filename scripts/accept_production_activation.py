@@ -138,23 +138,20 @@ def main():
                     path = Path("/") / entry["path"]
                     if path.stat().st_size != entry["bytes"] or digest(path) != entry["sha256"]:
                         raise ValueError("Actual installed Mac payload differs from the frozen candidate")
-                subprocess.run(["killall", "AudioComponentRegistrar"], stdout=log, stderr=log, timeout=30, check=False)
                 status["validation"] = {"actualPkgCleanInstall": "passed", "installedPayloadHashes": "passed"}
                 from macos_delivery_checks import inspect_bundles, exercise_recovery, wait_for_audio_component
                 bundles = [Path('/Library/Audio/Plug-Ins/VST3') / index['product']['vst3Bundle'],
                            Path('/Library/Audio/Plug-Ins/Components') / index['product']['auBundle']]
                 status['validation']['nestedMachO'] = inspect_bundles(bundles, selected['candidate']['minimumOS'])
-                status['validation'].update(exercise_recovery(mount, bundles, run))
-                # The registrar can observe the intentionally quarantined AU
-                # while recovery is being exercised. Refresh discovery only
-                # after the delivered command has removed those attributes.
-                # Updating the containing directory makes the completed recovery
-                # visible to discovery; the disposable VM has no customer cache.
-                run(['sudo', '/usr/bin/touch', str(bundles[1]), str(bundles[1].parent)])
-                subprocess.run(['killall', 'AudioComponentRegistrar'], stdout=log, stderr=log, timeout=30, check=False)
                 import plistlib
                 with (bundles[1] / 'Contents/Info.plist').open('rb') as stream:
                     component = plistlib.load(stream)['AudioComponents'][0]
+                # Establish discovery before injecting quarantine. Terminating
+                # the asynchronous registrar immediately after filesystem changes
+                # can discard its update notifications; observe its state instead.
+                wait_for_audio_component(component, architectures[0], log)
+                status['validation']['auDiscoveryBeforeQuarantine'] = 'passed'
+                status['validation'].update(exercise_recovery(mount, bundles, run))
                 for architecture in architectures:
                     wait_for_audio_component(component, architecture, log)
                     run(['arch', '-' + architecture, '/usr/bin/auval', '-v',
