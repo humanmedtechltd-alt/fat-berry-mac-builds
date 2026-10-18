@@ -102,13 +102,48 @@ def main():
                 call(helper, "load", expected=20)
                 call(helper, "store", vector)
                 created = True
-                for binary in variants:
-                    if call(binary, "load") != vector:
-                        raise ValueError("Default-keychain identity cannot be shared across release builds")
-                status = "passed"
+                if call(helper, 'load') != vector:
+                    raise ValueError('Default-keychain identity changed')
+                if index.get('macKeychainHelper'):
+                    # Regression control: a separately compiled minimum-OS
+                    # variant cannot read this ad-hoc partition on macOS 15.
+                    call(variants[1], 'load', expected=69)
+                else:
+                    for binary in variants:
+                        if call(binary, "load") != vector:
+                            raise ValueError("Default-keychain identity cannot be shared across release builds")
             finally:
                 if created:
                     security("delete-generic-password", "-s", "Fat Berry DSP Licensing", "-a", "device-key.v1")
+            if index.get('macKeychainHelper'):
+                pin = index['macKeychainHelper']
+                canonical = root / 'fatberry-keychain-store'
+                transfer('get', 'input/' + pin['file'], canonical)
+                if digest(canonical) != pin['sha256'] or canonical.stat().st_size != pin['bytes']:
+                    raise ValueError('Canonical helper changed')
+                if digest(source / 'src/MacKeychainStore.mm') != pin['sourceSha256']:
+                    raise ValueError('Canonical helper source changed')
+                canonical.chmod(0o755)
+                subprocess.run(['codesign', '--verify', '--strict', str(canonical)], check=True, stdout=log, stderr=log, timeout=30)
+                copies = [canonical]
+                for folder in ('product-a/Resources', 'product-b/Resources'):
+                    target = root / folder / canonical.name
+                    target.parent.mkdir(parents=True)
+                    shutil.copy2(canonical, target)
+                    copies.append(target)
+                for architecture in ('arm64', 'x86_64'):
+                    created = False
+                    try:
+                        call(canonical, 'load', expected=20, architecture=architecture)
+                        call(canonical, 'store', vector, architecture=architecture)
+                        created = True
+                        for binary in copies:
+                            if call(binary, 'load', architecture=architecture) != vector:
+                                raise ValueError('Canonical identity differs between products/probe')
+                    finally:
+                        if created:
+                            security('delete-generic-password', '-s', 'Fat Berry DSP Licensing', '-a', 'device-key.v1')
+            status = 'passed'
     except Exception as error:
         with log_path.open("a") as log:
             log.write(f"{type(error).__name__}: {error}\n")

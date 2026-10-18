@@ -231,6 +231,15 @@ def main() -> None:
             run("chmod", "+x", str(validator))
             run("xattr", "-cr", str(root / "pluginval"))
             product_file = root / "product.json"
+            if index.get('macKeychainHelper'):
+                helper = index['macKeychainHelper']
+                target = root / helper['file']
+                transfer('get', 'input/' + helper['file'], target)
+                if digest(target) != helper['sha256'] or target.stat().st_size != helper['bytes']:
+                    raise ValueError('Shared Keychain helper artifact changed')
+                if digest(client / 'src/MacKeychainStore.mm') != helper['sourceSha256']:
+                    raise ValueError('Shared Keychain helper source differs from compiled client')
+                product['macKeychainHelper'] = helper
             product.update(inputIndexSha256=index_hash, dependencySnapshots={d["directory"]: d.get("sourceSnapshot", d["sha256"]) for d in [*index["dependencies"], *product.get("dependencies", [])]})
             product_file.write_text(json.dumps(product))
             run(sys.executable, str(tooling / "tools/package_staged_macos.py"),
