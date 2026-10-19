@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -25,9 +26,14 @@ class Store:
         return self.opener.open(request,timeout=120)
 
     def api(self,path,body=None):
-        with self.request('https://api.github.com/'+path,body=json.dumps(body).encode()if body is not None else None,
-                          headers={'Content-Type':'application/json'}if body is not None else None)as stream:
-            return json.load(stream)
+        for attempt in range(2):
+            try:
+                with self.request('https://api.github.com/'+path,body=json.dumps(body).encode()if body is not None else None,
+                                  headers={'Content-Type':'application/json'}if body is not None else None)as stream:
+                    return json.load(stream)
+            except urllib.error.HTTPError as error:
+                if body is not None or error.code not in [500,502,503,504]or attempt:raise
+                time.sleep(1)
 
     def private(self):
         value=self.api('repos/'+REPOSITORY)
@@ -49,10 +55,12 @@ class Store:
         try:return self.api('repos/'+REPOSITORY+'/releases',{'tag_name':tag,'target_commitish':self.default_branch,'draft':True,'name':tag,
             'body':'Private immutable installer and compilation objects; customer access stays licensed through fatberrydsp.com.'})
         except urllib.error.HTTPError as error:
-            if error.code!=422:raise
+            if error.code not in [422,500,502,503,504]:raise
             found=find()
-            if not found:raise
-            return found
+            if found:return found
+            if error.code==422:raise
+            return self.api('repos/'+REPOSITORY+'/releases',{'tag_name':tag,'target_commitish':self.default_branch,'draft':True,'name':tag,
+                'body':'Private immutable release objects.'})
 
     def asset(self,file,sha):
         self.private()
