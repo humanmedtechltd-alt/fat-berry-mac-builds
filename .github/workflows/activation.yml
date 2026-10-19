@@ -33,6 +33,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
       ACCEPTANCE_PLATFORM: ${{ matrix.platform }}
+      FATBERRY_PRIVATE_ASSET_TOKEN: ${{ secrets.FATBERRY_PRIVATE_ASSET_TOKEN }}
       INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
       RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
     steps:

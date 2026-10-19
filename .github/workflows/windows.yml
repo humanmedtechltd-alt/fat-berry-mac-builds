@@ -20,6 +20,8 @@ concurrency:
 jobs:
   package:
     runs-on: windows-2025
+    env:
+      FATBERRY_PRIVATE_ASSET_TOKEN: ${{ secrets.FATBERRY_PRIVATE_ASSET_TOKEN }}
     timeout-minutes: 120
     strategy:
       fail-fast: false

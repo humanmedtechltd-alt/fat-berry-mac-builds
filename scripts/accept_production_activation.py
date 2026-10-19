@@ -44,7 +44,7 @@ def plugin_validation_timeout(checks):
 
 
 def main():
-    from build_product import digest, transfer
+    from build_product import digest, transfer, input_object
 
     platform = os.environ["ACCEPTANCE_PLATFORM"]
     index_sha = os.environ["INPUT_INDEX_SHA256"]
@@ -69,8 +69,7 @@ def main():
         selected = index["platforms"][platform]
         status.update(slug=index["product"]["slug"], installerSha256=selected["candidate"]["sha256"], leaseId=selected["lease"]["leaseId"])
         for item in selected["dependencies"]:
-            archive = work / item["file"]
-            transfer("get", "input/" + item["file"], archive)
+            archive = input_object(item,work)
             if digest(archive) != item["sha256"]:
                 raise ValueError("Activation dependency hash mismatch")
             destination = work / item["directory"]
@@ -92,7 +91,10 @@ def main():
         key = next(p["licenceKey"] for p in lease["products"] if p["productId"] == index["product"]["productId"])
         candidate = selected["candidate"]
         installer = work / ("installer-mac.dmg" if platform == "macos" else "installer-win.exe")
-        transfer("get", "input/" + candidate["file"], installer)
+        if candidate.get('storage'):
+            from private_objects import Store
+            Store().download(candidate['storage'],installer)
+        else:transfer("get", "input/" + candidate["file"], installer)
         if digest(installer) != candidate["sha256"]:
             raise ValueError("The actual candidate installer changed")
         with (work / "acceptance.log").open("w", encoding="utf-8") as log:

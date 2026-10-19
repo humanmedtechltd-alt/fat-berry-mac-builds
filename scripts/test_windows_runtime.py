@@ -133,7 +133,10 @@ def main():
             raise ValueError("Acceptance index hash mismatch")
         index = json.loads((work / "request-index.json").read_text())
         request = next(p for p in index["products"] if p["slug"] == slug)
-        transfer("get", "input/" + request["file"], work / "installer-win.exe")
+        if request.get('storage'):
+            from private_objects import Store
+            Store().download(request['storage'],work/'installer-win.exe')
+        else:transfer("get", "input/" + request["file"], work / "installer-win.exe")
         result.update(installerSha256=request["sha256"], buildInputSha256=request["buildInputSha256"], sourceRun=request["sourceRun"])
         result["validation"] = {}
         with (work / "runtime.log").open("w", encoding="utf-8") as log:

@@ -25,7 +25,10 @@ def restore(source, expected, entries, transfer):
         if destination.exists():
             raise ValueError('Detached content destination already exists')
         destination.parent.mkdir(parents=True, exist_ok=True)
-        transfer('get', 'input/' + entry['file'], destination)
+        if entry.get('storage'):
+            from private_objects import Store
+            Store().download(entry['storage'],destination)
+        else:transfer('get', 'input/' + entry['file'], destination)
         with destination.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         if destination.stat().st_size != record['bytes'] or digest != record['sha256']:

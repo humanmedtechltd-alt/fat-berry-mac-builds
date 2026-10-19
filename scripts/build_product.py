@@ -31,6 +31,14 @@ def output_prefix(platform: str, slug: str) -> str:
 
 def transfer(operation: str, remote: str, local: Path) -> None:
     local.parent.mkdir(parents=True, exist_ok=True)
+    if (operation=='put' and local.name in {'compiled.tar.gz','installer-mac.dmg','installer-win.exe'}
+            and local.stat().st_size>=64*1024**2 and os.environ.get('FATBERRY_PRIVATE_ASSET_TOKEN')):
+        from private_objects import Store
+        location=Store().upload(local)
+        if location['sha256']!=digest(local):raise ValueError('Private release object changed during upload')
+        locator=local.with_name(local.name+'.storage.json');locator.write_text(json.dumps(location,indent=2)+'\n')
+        transfer('put',remote+'.storage.json',locator)
+        return
     for attempt in range(3):
         try:
             with local.open("wb" if operation == "get" else "rb") as stream:
@@ -46,6 +54,16 @@ def transfer(operation: str, remote: str, local: Path) -> None:
 def digest(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def input_object(entry,root):
+    target=root/entry['file']
+    if entry.get('storage'):
+        from private_objects import Store
+        Store().download(entry['storage'],target)
+    else:transfer('get','input/'+entry['file'],target)
+    if digest(target)!=entry['sha256']:raise ValueError('Private input object checksum differs')
+    return target
 
 
 def main() -> None:
@@ -93,8 +111,7 @@ def main() -> None:
                     raise subprocess.CalledProcessError(result, command)
 
             for item in [*index["dependencies"], *product.get("dependencies", []), *product["archives"]]:
-                archive = root / item["file"]
-                transfer("get", f"input/{item['file']}", archive)
+                archive = input_object(item,root)
                 if digest(archive) != item["sha256"]:
                     raise ValueError("Private input archive hash mismatch")
                 destination = root / item["directory"]
@@ -145,8 +162,7 @@ def main() -> None:
             restored = False
             if cached and cached["toolchain"] == toolchain:
                 checkpoint("restore-compiled-bundles")
-                archive = root / cached["file"]
-                transfer("get", "input/" + cached["file"], archive)
+                archive = input_object(cached,root)
                 if digest(archive) != cached["sha256"] or cached["compilationFingerprint"] != product["compilationFingerprint"]:
                     raise ValueError("Compiled cache differs from the exact compilation contract")
                 with tarfile.open(archive) as source_archive:
