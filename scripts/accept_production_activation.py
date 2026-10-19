@@ -14,6 +14,26 @@ import zipfile
 from build_product import digest, transfer
 
 
+def host_checks_for_format(checks, plugin_format):
+    """Include explicitly contracted wrapper parameters in complete images."""
+    current = dict(checks)
+    additions = current.pop('factoryImageFormatParameters', {}).get(plugin_format, {})
+    if additions:
+        images = current.get('factoryParameterPresets')
+        if not isinstance(images, list) or not images:
+            raise ValueError('Format parameters require complete factory images')
+        expanded = []
+        for image in images:
+            values = image['values']
+            if set(values) & set(additions):
+                raise ValueError('Format parameters cannot overwrite authored parameters')
+            if any(not isinstance(v, (int, float)) or not 0 <= v <= 1 for v in additions.values()):
+                raise ValueError('Invalid normalized format parameter')
+            expanded.append({**image, 'values': {**values, **additions}})
+        current['factoryParameterPresets'] = expanded
+    return current
+
+
 def main():
     platform = os.environ["ACCEPTANCE_PLATFORM"]
     index_sha = os.environ["INPUT_INDEX_SHA256"]
@@ -190,7 +210,7 @@ def main():
             def check(action, architecture, plugin_path=None, plugin_format=None):
                 name = action + "-" + architecture + ("-" + plugin_format if plugin_format else "")
                 current = dict(config)
-                current.update(index["hostChecks"])
+                current.update(host_checks_for_format(index["hostChecks"], plugin_format))
                 if plugin_path:
                     current.update(pluginPath=str(plugin_path), pluginFormat=plugin_format,
                                    instrument=index["instrument"], expectAudioOutput=index["expectAudioOutput"])
