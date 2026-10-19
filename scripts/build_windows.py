@@ -13,7 +13,7 @@ import sys
 import tarfile
 import zipfile
 
-from build_product import transfer, digest, output_prefix
+from build_product import transfer, digest, output_prefix,input_object
 
 
 def main() -> None:
@@ -59,8 +59,7 @@ def main() -> None:
                     raise subprocess.CalledProcessError(result, args)
                 return ""
             for item in index["dependencies"]:
-                archive = root / item["file"]
-                transfer("get", f"input/{item['file']}", archive)
+                archive = input_object(item,root)
                 if digest(archive) != item["sha256"]:
                     raise ValueError("Private Windows dependency hash mismatch")
                 destination = root / item["directory"]
@@ -72,6 +71,10 @@ def main() -> None:
                     with tarfile.open(archive) as source:
                         source.extractall(destination, filter="data")
                 archive.unlink()
+            if product.get('localCandidate'):
+                from accept_local_windows_candidate import accept
+                accept(product,index,root,output,checkpoint)
+                return
             innounp = root / "tools/innounp.exe"
             original = root / "original.exe"
             transfer("get", f"input/windows/{slug}/installer-win.exe", original)
@@ -87,14 +90,18 @@ def main() -> None:
                     raise ValueError("Original product-specific payload differs from audited inventory")
             for replacement in product.get("replacements", []):
                 destination = payload / replacement["path"]
-                transfer("get", "input/" + replacement["file"], destination)
+                cache=root/'payload-inputs';cache.mkdir(exist_ok=True)
+                incoming=input_object(replacement,cache)
+                destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(incoming,destination)
                 if destination.stat().st_size != replacement["bytes"] or digest(destination) != replacement["sha256"]:
                     raise ValueError("Replacement product content hash mismatch")
             for addition in product.get("additions", []):
                 destination = payload / addition["path"]
                 if destination.exists() or not destination.resolve().is_relative_to(payload.resolve()):
                     raise ValueError("Additional content conflicts with an existing file or escapes the payload")
-                transfer("get", "input/" + addition["file"], destination)
+                cache=root/'payload-inputs';cache.mkdir(exist_ok=True)
+                incoming=input_object(addition,cache)
+                destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(incoming,destination)
                 if destination.stat().st_size != addition["bytes"] or digest(destination) != addition["sha256"]:
                     raise ValueError("Additional product content hash mismatch")
             module = payload / product["modulePath"]
