@@ -148,6 +148,10 @@ def main() -> None:
             from public_sdk_inputs import restore
             restore(source, product["sourceSnapshot"], run)
             run(sys.executable, str(tooling / "tools/verify_source_snapshot.py"), str(source), product["sourceSnapshot"])
+            if product.get('resourceLocatorChecks'):
+                checkpoint('test-resource-locators')
+                from resource_locator_checks import validate as validate_resource_locators
+                validate_resource_locators(source,root,product['resourceLocatorChecks'],run)
             # Check frozen runtime inputs before spending time compiling. Local
             # repository paths do not exist in the runner's flattened capture.
             for entry in product.get('supportFiles', []):

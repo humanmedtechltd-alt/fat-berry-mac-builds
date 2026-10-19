@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import gzip
 
 from public_sdk_inputs import contained
 
@@ -25,10 +26,28 @@ def restore(source, expected, entries, transfer):
         if destination.exists():
             raise ValueError('Detached content destination already exists')
         destination.parent.mkdir(parents=True, exist_ok=True)
-        if entry.get('storage'):
+        transport=entry.get('archive',entry)
+        archive=entry.get('archive')
+        target=destination.with_name(destination.name+'.compressed-input')if archive else destination
+        if archive and (archive.get('compression')!='gzip'or archive.get('file')!=entry['file']):
+            raise ValueError('Unsupported private content transport')
+        if transport.get('storage'):
             from private_objects import Store
-            Store().download(entry['storage'],destination)
-        else:transfer('get', 'input/' + entry['file'], destination)
+            Store().download(transport['storage'],target)
+        else:transfer('get', 'input/' + entry['file'], target)
+        if archive:
+            try:
+                with target.open('rb')as stream:compressed_sha=hashlib.file_digest(stream,'sha256').hexdigest()
+                if target.stat().st_size!=archive['bytes']or compressed_sha!=archive['sha256']:
+                    raise ValueError('Compressed private content transport changed')
+                total=0
+                with gzip.open(target,'rb')as compressed,destination.open('xb')as output:
+                    while block:=compressed.read(1024**2):
+                        total+=len(block)
+                        if total>record['bytes']:raise ValueError('Compressed private content exceeds frozen source size')
+                        output.write(block)
+            finally:
+                if target.exists():target.unlink()
         with destination.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         if destination.stat().st_size != record['bytes'] or digest != record['sha256']:
