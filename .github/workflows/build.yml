@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: fatberry-macos-release-${{ inputs.index_sha256 }}
+  group: fatberry-macos-release-${{ github.run_id }}
   queue: max
   cancel-in-progress: false
 
