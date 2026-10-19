@@ -14,6 +14,15 @@ import time
 import shutil
 import re
 
+PRODUCTION_DISK_RESERVE_BYTES = 3 * 1024**3
+
+
+def require_storage_reserve(root, incoming_bytes, *, status=False):
+    # Small completion events must still report a refused large upload.
+    reserve = 512 * 1024**2 if status else PRODUCTION_DISK_RESERVE_BYTES
+    if shutil.disk_usage(root).free < reserve + incoming_bytes:
+        raise ValueError('Installer staging paused: production disk reserve protected')
+
 
 def main() -> None:
     root = Path(sys.argv[1]).resolve(strict=True)
@@ -40,6 +49,7 @@ def main() -> None:
             while block := source.read(1024 * 1024):
                 sys.stdout.buffer.write(block)
     else:
+        require_storage_reserve(root, 1024 * 1024, status=path.name == 'status.json')
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         temporary = path.with_name(path.name + f".part-{os.getpid()}")
         size = 0
@@ -50,8 +60,7 @@ def main() -> None:
                     size += len(block)
                     if size > 60 * 1024**3:
                         raise ValueError("Object exceeds transfer limit")
-                    if size % (32 * 1024**2) < len(block) and shutil.disk_usage(root).free < 512 * 1024**2:
-                        raise ValueError("Insufficient disk reserve; production storage protected")
+                    require_storage_reserve(root, len(block), status=path.name == 'status.json')
                     destination.write(block)
             os.replace(temporary, path)
             if path.name == "status.json":
