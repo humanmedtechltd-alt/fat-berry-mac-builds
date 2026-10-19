@@ -11,9 +11,6 @@ import sys
 import tarfile
 import zipfile
 
-from build_product import digest, transfer
-
-
 def host_checks_for_format(checks, plugin_format):
     """Include explicitly contracted wrapper parameters in complete images."""
     current = dict(checks)
@@ -35,6 +32,8 @@ def host_checks_for_format(checks, plugin_format):
 
 
 def main():
+    from build_product import digest, transfer
+
     platform = os.environ["ACCEPTANCE_PLATFORM"]
     index_sha = os.environ["INPUT_INDEX_SHA256"]
     if platform not in {"macos", "windows"} or not re.fullmatch(r"[0-9a-f]{64}", index_sha):
