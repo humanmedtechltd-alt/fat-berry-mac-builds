@@ -1,4 +1,5 @@
 name: Private Windows runtime bootstrap acceptance
+run-name: "${{ github.workflow }} | ${{ inputs.index_sha256 }} | ${{ inputs.products || inputs.platform || '' }}"
 on:
   workflow_dispatch:
     inputs:

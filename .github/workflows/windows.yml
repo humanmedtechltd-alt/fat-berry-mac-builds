@@ -1,4 +1,5 @@
 name: Private Windows installer corrections on free standard runners
+run-name: "${{ github.workflow }} | ${{ inputs.index_sha256 }} | ${{ inputs.products || inputs.platform || '' }}"
 on:
   workflow_dispatch:
     inputs:
