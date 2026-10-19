@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: fatberry-macos-release
+  group: fatberry-macos-release-${{ inputs.index_sha256 }}
   queue: max
   cancel-in-progress: false
 
@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 5
       matrix:
         slug: ${{ fromJSON(inputs.products) }}
     steps:

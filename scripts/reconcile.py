@@ -195,8 +195,8 @@ def main() -> None:
         rows = [attach_publication_result(root, attach_production_result(root, row)) for row in rows]
         scope = index.get('scope', [])
         if scope:
-            if len(scope) != 52 or len({item['slug'] for item in scope}) != 52:
-                raise ValueError('Release scope must contain exactly the agreed 52 products')
+            if len({item['slug'] for item in scope}) != len(scope):
+                raise ValueError('Release scope repeats a product')
             existing = {(row['slug'], row['platform']) for row in rows}
             for product in scope:
                 for platform in ['windows', 'macos']:
@@ -207,16 +207,17 @@ def main() -> None:
         published_coverage = {platform: sum(bool(row.get('publishedInstallerSha256')) for row in rows if row['platform']==platform)
                               for platform in ['windows','macos']}
         counts = {state: sum(r["status"] == state for r in rows) for state in sorted({r["status"] for r in rows})}
+        expected_products = len(scope) if scope else len({r['slug'] for r in rows})
         report = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                  "expectedProducts": 52, "configuredProducts": len({r['slug'] for r in rows}),
+                  "expectedProducts": expected_products, "configuredProducts": len({r['slug'] for r in rows}),
                   "platformCoverage": {platform: sum(r.get("platform") == platform for r in rows) for platform in ("windows", "macos")}, "counts": counts,
                   "products": rows, "acceptedPublishedCoverage": published_coverage,
                   "publication": "Only candidates passing the complete release acceptance gate may be published."}
         atomic_json(root / "report.json", report)
         lines = ["# Fat Berry unattended installer queue", "", f"Updated: {report['updatedAt']}", "",
                  "Existing VPS; standard public GitHub Actions Mac runners; no model polling.", "",
-                 f"Accepted live releases: Windows {published_coverage['windows']}/52; Mac {published_coverage['macos']}/52.",
-                 f"Tracked Windows: {report['platformCoverage']['windows']}/52; Mac: {report['platformCoverage']['macos']}/52. " + ", ".join(f"{k}: {v}" for k, v in counts.items()), ""]
+                 f"Accepted live releases: Windows {published_coverage['windows']}/{expected_products}; Mac {published_coverage['macos']}/{expected_products}.",
+                 f"Tracked Windows: {report['platformCoverage']['windows']}/{expected_products}; Mac: {report['platformCoverage']['macos']}/{expected_products}. " + ", ".join(f"{k}: {v}" for k, v in counts.items()), ""]
         for row in rows:
             lines.append(f"- **{row['name']} ({row['platform']})**: {row['status']} — {row['stage']}" +
                          (f" ([build]({row['runUrl']}))" if row.get("runUrl") else ""))
@@ -227,7 +228,7 @@ def main() -> None:
         issues = ["# Something you need to do", "", f"Updated automatically: {report['updatedAt']}", "",
                   "Release acceptance is incomplete. Published entries have passed the trusted gate and customer download verification; other candidates remain private.", ""]
         for row in rows:
-            if row["status"] in {"failed", "rejected", "blocked", "interrupted", "acceptance-failed"}:
+            if not row.get('publishedInstallerSha256') or row["status"] in {"failed", "rejected", "blocked", "interrupted", "acceptance-failed"}:
                 issues.append(f"- [ ] {row['name']} ({row['platform']}): {row['status']} — {row['stage']}" +
                               (f". Diagnostics: {row['runUrl']}" if row.get("runUrl") else ""))
         atomic_issue = root / "Something you need to do.md.next"
