@@ -15,8 +15,13 @@ def host_checks_for_format(checks, plugin_format):
     """Include explicitly contracted wrapper parameters in complete images."""
     current = dict(checks)
     additions = current.pop('factoryImageFormatParameters', {}).get(plugin_format, {})
+    state_additions = current.pop('stateImageFormatParameters', {}).get(plugin_format, {})
+    if additions and state_additions:
+        raise ValueError('Use one explicit parameter image contract per product')
+    key = 'parameterStateImages' if state_additions else 'factoryParameterPresets'
+    additions = additions or state_additions
     if additions:
-        images = current.get('factoryParameterPresets')
+        images = current.get(key)
         if not isinstance(images, list) or not images:
             raise ValueError('Format parameters require complete factory images')
         expanded = []
@@ -27,8 +32,15 @@ def host_checks_for_format(checks, plugin_format):
             if any(not isinstance(v, (int, float)) or not 0 <= v <= 1 for v in additions.values()):
                 raise ValueError('Invalid normalized format parameter')
             expanded.append({**image, 'values': {**values, **additions}})
-        current['factoryParameterPresets'] = expanded
+        current[key] = expanded
     return current
+
+
+def plugin_validation_timeout(checks):
+    # Every image has deliberate GUI-dispatch waits plus eight audio blocks.
+    # A large authored bank must get time for every image on each architecture.
+    count = sum(len(checks.get(key, [])) for key in ('factoryProgramNames', 'factoryParameterPresets', 'parameterStateImages'))
+    return 180 + count
 
 
 def main():
@@ -222,7 +234,8 @@ def main():
                         '-o', 'run', '-k', 'thread backtrace all', '-k', 'image list', '-k', 'quit 1',
                         '-o', 'script import lldb; p=lldb.debugger.GetSelectedTarget().GetProcess(); lldb.debugger.HandleCommand("quit " + str(p.GetExitStatus() if p.GetState()==lldb.eStateExited else 1))',
                         '--', str(probe), str(configuration), action, str(report)]
-                run(command, secret=(key + "\n").encode() if action == "activate" else None)
+                run(command, secret=(key + "\n").encode() if action == "activate" else None,
+                    timeout=plugin_validation_timeout(current) if action == 'validate-plugin' else 180)
                 result = json.loads(report.read_text())
                 if result.get("status") != "passed":
                     raise ValueError("The production client/host acceptance did not pass")
