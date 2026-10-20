@@ -137,7 +137,11 @@ def main():
                     if cached.get("probeBuildFingerprint") != selected["probeBuildFingerprint"]:
                         raise ValueError("The compiled production probe has stale source inputs")
                     archive = work / "activation-probe.tar.gz"
-                    transfer("get", "input/" + cached["file"], archive)
+                    if cached.get('storage'):
+                        from private_objects import Store
+                        Store().download(cached['storage'], archive)
+                    else:
+                        transfer("get", "input/" + cached["file"], archive)
                     if digest(archive) != cached["sha256"]:
                         raise ValueError("The compiled production probe changed")
                     destination = work / "probe-cache"

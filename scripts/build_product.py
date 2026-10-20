@@ -31,8 +31,7 @@ def output_prefix(platform: str, slug: str) -> str:
 
 def transfer(operation: str, remote: str, local: Path) -> None:
     local.parent.mkdir(parents=True, exist_ok=True)
-    if (operation=='put' and (local.name in {'installer-mac.dmg','installer-win.exe'}
-            or local.name=='compiled.tar.gz'and local.stat().st_size>=64*1024**2)
+    if (operation=='put' and local.name in {'installer-mac.dmg','installer-win.exe','compiled.tar.gz','activation-probe.tar.gz'}
             and os.environ.get('FATBERRY_PRIVATE_ASSET_TOKEN')):
         from private_objects import Store
         location=Store().upload(local)
