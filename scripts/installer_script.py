@@ -1,6 +1,23 @@
 """Create an Inno script from a product's explicit audited installation contract."""
 from pathlib import Path
+import re
 from windows_payload import archive_path
+
+
+def preserve_customer_directories(section: str, bundle: str) -> str:
+    """Inno removes its own recorded files; shared preset folders must survive."""
+    if not section.lstrip().lower().startswith('[uninstalldelete]'):
+        return section
+    lines=[]
+    for line in section.splitlines():
+        match=re.search(r'Type:\s*filesandordirs\s*;\s*Name:\s*"([^"]+)"',line,re.I)
+        if match:
+            target=match[1].replace('/','\\').rstrip('\\')
+            if target.rsplit('\\',1)[-1].lower()!=bundle.lower():
+                if '*'in target or '?'in target:raise ValueError('Review wildcard uninstall deletion outside the plugin bundle')
+                line=re.sub(r'Type:\s*filesandordirs', 'Type: dirifempty',line,flags=re.I)
+        lines.append(line)
+    return '\n'.join(lines)+'\n'
 
 
 def write_script(product: dict, runtime: dict, tooling: Path, design: Path, payload: Path, redist: Path, final: Path, script: Path) -> None:
@@ -22,7 +39,7 @@ def write_script(product: dict, runtime: dict, tooling: Path, design: Path, payl
         if relative.is_absolute() or ".." in relative.parts or '"' in str(relative) or "\n" in str(relative):
             raise ValueError("Invalid required content destination")
         lines.append(f'Source: "{payload / relative}"; DestDir: "{relative.parent}"; Flags: ignoreversion')
-    lines.extend(product["additionalSections"])
+    lines.extend(preserve_customer_directories(section,product['vst3Bundle'])for section in product["additionalSections"])
     # Keep product upgrade, staging, recovery and uninstall behavior.
     # Decompiled file listings do not contain the original Pascal code.
     if product["installerCode"]:

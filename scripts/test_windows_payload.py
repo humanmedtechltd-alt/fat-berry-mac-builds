@@ -59,4 +59,13 @@ class WindowsPayloadTests(unittest.TestCase):
             self.assertIn('DestDir: "'+str(Path(archive).parent)+'"',result)
             self.assertIn('procedure Swap;',result)
 
+    def test_uninstall_removes_installed_factory_files_without_recursively_deleting_customer_presets(self):
+        from installer_script import preserve_customer_directories
+        section='[UninstallDelete]\nType: filesandordirs; Name: "{app}\\Plugin.vst3";\nType: filesandordirs; Name: "{commonappdata}\\VST3 Presets\\Vendor\\Plugin";\n'
+        result=preserve_customer_directories(section,'Plugin.vst3')
+        self.assertIn('Type: filesandordirs; Name: "{app}\\Plugin.vst3"',result)
+        self.assertIn('Type: dirifempty; Name: "{commonappdata}\\VST3 Presets\\Vendor\\Plugin"',result)
+        self.assertNotIn('filesandordirs; Name: "{commonappdata}',result)
+        self.assertEqual(preserve_customer_directories(result,'Plugin.vst3'),result)
+
 if __name__=='__main__':unittest.main()
