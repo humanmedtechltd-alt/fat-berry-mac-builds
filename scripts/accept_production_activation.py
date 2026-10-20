@@ -299,17 +299,17 @@ def main():
             if platform == "macos":
                 marker_name = 'FatBerry-customer-acceptance-' + uuid.uuid4().hex + '.keep'
                 marker_bytes = b'Customer-created content: retain across installer lifecycle.\n'
-                marker_source = work / marker_name
-                marker_source.write_bytes(marker_bytes)
-                marker_directories = {bundle.parent for bundle in bundles}
+                markers = {bundle.parent / marker_name: marker_bytes for bundle in bundles}
                 for entry in candidate['payloadFiles']:
                     if entry['path'].startswith('Library/Audio/Presets/'):
-                        marker_directories.add((Path('/') / entry['path']).parent)
-                markers = [folder / marker_name for folder in marker_directories]
-                for path in markers:
+                        installed_preset = Path('/') / entry['path']
+                        markers.setdefault(installed_preset.parent / (marker_name + installed_preset.suffix), installed_preset.read_bytes())
+                for number, (path, content) in enumerate(markers.items()):
+                    marker_source = work / (str(number) + marker_name)
+                    marker_source.write_bytes(content)
                     run(['sudo', '/usr/bin/install', '-m', '644', str(marker_source), str(path)])
                 def verify_customer_content():
-                    if any(not path.is_file() or path.read_bytes() != marker_bytes for path in markers):
+                    if any(not path.is_file() or path.read_bytes() != content for path, content in markers.items()):
                         raise ValueError('Mac installer lifecycle removed customer-created presets or unrelated files')
                 run(["sudo", "installer", "-pkg", str(packages[0]), "-target", "/"], timeout=600)
                 for entry in candidate["payloadFiles"]:

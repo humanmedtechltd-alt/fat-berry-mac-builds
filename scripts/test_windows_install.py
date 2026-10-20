@@ -191,15 +191,14 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
     # file beside the bundle. Reinstallation/uninstall must preserve both.
     marker_name = 'FatBerry-customer-acceptance-' + uuid.uuid4().hex + '.keep'
     marker_bytes = b'Customer-created content: retain across installer lifecycle.\n'
-    marker_directories = {bundle.parent}
+    markers = {bundle.parent / marker_name: marker_bytes}
     for path in installed:
         if path.suffix.lower() == '.vstpreset' and not path.is_relative_to(bundle):
-            marker_directories.add(path.parent)
-    markers = [folder / marker_name for folder in marker_directories]
-    for path in markers:
-        path.write_bytes(marker_bytes)
+            markers.setdefault(path.parent / (marker_name + '.vstpreset'), path.read_bytes())
+    for path, content in markers.items():
+        path.write_bytes(content)
     def verify_customer_content():
-        if any(not path.is_file() or path.read_bytes() != marker_bytes for path in markers):
+        if any(not path.is_file() or path.read_bytes() != content for path, content in markers.items()):
             raise ValueError('Installer lifecycle removed or changed customer-created presets or unrelated content')
     if before_scan is not None:
         before_scan(bundle)
