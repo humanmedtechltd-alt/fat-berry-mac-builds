@@ -124,6 +124,8 @@ def main() -> None:
                         source.extractall(destination, filter="data")
                 archive.unlink()
             checkpoint("tools")
+            from external_support_inputs import restore as restore_runtime_content
+            restore_runtime_content(root,product.get('supportInputs',[]),input_object,digest)
             from private_file_inputs import restore as restore_private_files
             restore_private_files(root / 'product', product['sourceSnapshot'], product.get('privateFiles', []), transfer)
             run(sys.executable, "-m", "venv", str(root / "tools"))
