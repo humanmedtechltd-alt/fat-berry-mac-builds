@@ -224,6 +224,14 @@ def main():
                 name = action + "-" + architecture + ("-" + plugin_format if plugin_format else "")
                 current = dict(config)
                 current.update(host_checks_for_format(index["hostChecks"], plugin_format))
+                if action == 'validate-plugin':
+                    from installed_factory_presets import verify as verify_factory_presets
+                    files = verify_factory_presets(index.get('factoryPresetFiles', {}).get(platform, []),
+                                                   current.get('factoryParameterPresets', []), platform)
+                    if files:
+                        status['validation']['installedFactoryPresetFileHashes'] = len(files)
+                        if plugin_format == 'VST3':
+                            current['installedFactoryPresetFiles'] = files
                 if plugin_path:
                     current.update(pluginPath=str(plugin_path), pluginFormat=plugin_format,
                                    instrument=index["instrument"], expectAudioOutput=index["expectAudioOutput"])
