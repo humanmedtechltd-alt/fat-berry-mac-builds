@@ -203,6 +203,8 @@ def main() -> None:
                          "-DSMTG_RUN_VST_VALIDATOR=OFF", "-DSMTG_CREATE_PLUGIN_LINK=OFF",
                          *([f"-DPython3_EXECUTABLE={root / 'tools/bin/python'}"] if product.get("pythonRequirements") else []),
                          *[arg.replace("{root}", str(root)) for arg in product["cmakeArguments"]], *framework_arguments]
+            from cached_sodium_source import arguments as sodium_arguments
+            configure.extend(sodium_arguments(index['dependencies'], root))
             if not restored:
                 run(*configure)
                 checkpoint("compile")

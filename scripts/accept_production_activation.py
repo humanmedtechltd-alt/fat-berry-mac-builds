@@ -155,11 +155,13 @@ def main():
                     run([sys.executable, "-m", "venv", str(work / "tools")])
                     run([str(work / "tools/bin/pip"), "install", "cmake==4.2.3", "ninja"], timeout=600)
                     cmake = str(work / "tools/bin/cmake")
+                    from cached_sodium_source import arguments as sodium_arguments
                     run([cmake, "-S", str(work / "tooling/acceptance"), "-B", str(work / "probe-build"), "-G", "Xcode",
                      "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0",
                      "-DFB_JUCE_ROOT=" + str(work / "juce"), "-DFB_LICENSING_CLIENT_ROOT=" + str(work / "client"),
                      "-DFATBERRY_LICENSING_SNAPSHOT_SHA256=" + selected["licensingSnapshot"],
-                         "-DFATBERRY_SODIUM_MACOS_SHA256=" + index["sodiumSha256"], "-DFATBERRY_LICENSING_BUILD_TESTS=OFF"], timeout=1200)
+                         "-DFATBERRY_SODIUM_MACOS_SHA256=" + index["sodiumSha256"], "-DFATBERRY_LICENSING_BUILD_TESTS=OFF",
+                         *sodium_arguments(selected['dependencies'], work)], timeout=1200)
                     run([cmake, "--build", str(work / "probe-build"), "--config", "Release", "--target", "FatBerryActivationProbe", "--parallel", "3"], timeout=1800)
                     probe = Path((work / "probe-build/probe-Release.txt").read_text())
                 for path in (probe.parent / "fatberry-keychain-store", probe):
