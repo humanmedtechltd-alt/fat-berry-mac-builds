@@ -1,5 +1,6 @@
 """Create an Inno script from a product's explicit audited installation contract."""
 from pathlib import Path
+from windows_payload import archive_path
 
 
 def write_script(product: dict, runtime: dict, tooling: Path, design: Path, payload: Path, redist: Path, final: Path, script: Path) -> None:
@@ -17,7 +18,7 @@ def write_script(product: dict, runtime: dict, tooling: Path, design: Path, payl
     for entry in product["fileEntries"]:
         lines.append(entry.replace("@PAYLOAD@", str(payload)))
     for addition in product.get("additions", []):
-        relative = Path(addition["path"])
+        relative = Path(archive_path(addition))
         if relative.is_absolute() or ".." in relative.parts or '"' in str(relative) or "\n" in str(relative):
             raise ValueError("Invalid required content destination")
         lines.append(f'Source: "{payload / relative}"; DestDir: "{relative.parent}"; Flags: ignoreversion')
