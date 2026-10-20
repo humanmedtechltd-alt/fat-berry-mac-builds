@@ -16,9 +16,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs):return None
 
 class Store:
-    def __init__(self,token=None):
+    def __init__(self,token=None,opener=None):
         self.token=token or os.environ['FATBERRY_PRIVATE_ASSET_TOKEN']
-        self.opener=urllib.request.build_opener(NoRedirect())
+        self.opener=opener or urllib.request.build_opener(NoRedirect())
 
     def request(self,url,*,body=None,accept='application/vnd.github+json',headers=None):
         base={'Authorization':'Bearer '+self.token,'Accept':accept,'X-GitHub-Api-Version':'2022-11-28','User-Agent':'FatBerry-Immutable-Release'}
