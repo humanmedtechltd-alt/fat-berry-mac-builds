@@ -10,7 +10,21 @@ jobs:
   preflight:
     runs-on: macos-15
     timeout-minutes: 10
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+      - name: Record exact packaging interpreter identity before product dispatch
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib,json,platform,sys
+          from pathlib import Path
+          binary=Path(sys.executable).resolve()
+          print('FATBERRY_TOOLCHAIN '+json.dumps({'platform':platform.system(),'architecture':platform.machine(),'pythonVersion':platform.python_version(),'pythonExecutableSha256':hashlib.sha256(binary.read_bytes()).hexdigest()}))
+          PY
       - name: Verify native toolchain, both architectures, signing and packaging
         shell: bash
         run: |
