@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import uuid
 import winreg
 
 from build_product import digest
@@ -186,11 +187,26 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
         raise ValueError("Required Visual C++ runtime DLLs remain absent after installation")
     module = next(path for path in installed if path.name.endswith(".vst3") and path.is_file())
     bundle = next(parent for parent in module.parents if parent.name.endswith(".vst3"))
+    # Place customer-created files alongside the factory bank and an unrelated
+    # file beside the bundle. Reinstallation/uninstall must preserve both.
+    marker_name = 'FatBerry-customer-acceptance-' + uuid.uuid4().hex + '.keep'
+    marker_bytes = b'Customer-created content: retain across installer lifecycle.\n'
+    marker_directories = {bundle.parent}
+    for path in installed:
+        if path.suffix.lower() == '.vstpreset' and not path.is_relative_to(bundle):
+            marker_directories.add(path.parent)
+    markers = [folder / marker_name for folder in marker_directories]
+    for path in markers:
+        path.write_bytes(marker_bytes)
+    def verify_customer_content():
+        if any(not path.is_file() or path.read_bytes() != marker_bytes for path in markers):
+            raise ValueError('Installer lifecycle removed or changed customer-created presets or unrelated content')
     if before_scan is not None:
         before_scan(bundle)
     run(str(pluginval), "--strictness-level", "5", "--validate", str(bundle), timeout=600)
     run(str(installer), *options, f"/LOG={work / 'reinstall.log'}", permitted=(0, 3010), timeout=1200)
     verify()
+    verify_customer_content()
     app_id = setup["AppId"].strip("{}")
     match = next((values for name, values in uninstall_entries() if name.lower() == ("{" + app_id + "}_is1").lower()), None)
     if not match:
@@ -202,10 +218,12 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
     if not any(uninstaller.is_relative_to(root) for root in allowed_roots):
         raise ValueError("Product uninstaller resolves outside its declared installation directories")
     run(str(uninstaller), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", permitted=(0, 3010))
-    if module.exists():
-        raise ValueError("Uninstall left the product module installed")
+    if any(path.exists() for path in installed):
+        raise ValueError("Uninstall left declared product payload files installed")
+    verify_customer_content()
     return {"cleanInstall": "passed", "installedPayloadHashes": "passed", "reinstall": "passed", "uninstall": "passed",
             "pluginval": "passed-x64-level5", "runtimeBeforeTest": before,
+            "customerContentPreserved": len(markers),
             **({"webView2Bootstrap": "passed-from-absent-desktop", "webView2BeforeTest": webview_before,
                 "webView2InstalledVersions": webview_after} if product.get("webView2Runtime") else {}),
             "runtimeBootstrap": "passed-from-absent" if runtime_names and absent_before_install else "not-required" if not runtime_names else "pending-runtime-remained-present"}
