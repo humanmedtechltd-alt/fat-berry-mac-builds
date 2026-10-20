@@ -219,8 +219,7 @@ def main():
                          component['type'], component['subtype'], component['manufacturer']], timeout=600)
                 status['validation']['auvalAfterQuarantineRecovery'] = 'passed-arm64-x86_64'
             else:
-                probe = work / "activation-probe.exe"
-                transfer("get", "input/" + selected["probe"]["file"], probe)
+                probe = input_object(selected["probe"], work)
                 if digest(probe) != selected["probe"]["sha256"]:
                     raise ValueError("The compiled production probe changed")
                 status["validation"] = {}
