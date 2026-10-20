@@ -23,10 +23,10 @@ def validate(source,work,checks,run):
         code=folder/'check.cpp'
         if check.get('kind')=='mapped-pack':
             body='const auto actual='+symbol+'::defaultPath();\nif(!std::filesystem::equivalent(actual,expected))return 3;\n'+symbol+' pack;\nif(!pack.open(actual,{}))return 4;\n'+symbol+' moved(std::move(pack));\nif(!moved.loaded())return 5;\nmoved.close();\nif(!pack.open(actual,{}))return 6;\npack.close();return 0;\n}\n'
-        else:body='for(const auto& candidate:'+symbol+'()) {\nconst auto file=std::filesystem::u8path(candidate);\nif(std::filesystem::exists(file))return std::filesystem::equivalent(file,expected)?0:3;\n}\nreturn 4;\n}\n'
-        code.write_text('#include <filesystem>\n#include <utility>\n#include "'+str(header)+'"\n'
+        else:body='for(const auto& candidate:'+symbol+'()) {\nconst std::filesystem::path file{std::u8string(candidate.begin(),candidate.end())};\nif(std::filesystem::exists(file))return std::filesystem::equivalent(file,expected)?0:3;\n}\nreturn 4;\n}\n'
+        code.write_text('#include <filesystem>\n#include <string>\n#include <utility>\n#include "'+str(header)+'"\n'
             '#ifdef _WIN32\nint wmain(int argc,wchar_t** argv) {\nconst std::filesystem::path expected{argv[1]};\n'
-            '#else\nint main(int argc,char** argv) {\nconst auto expected=std::filesystem::u8path(argv[1]);\n#endif\n'
+            '#else\nint main(int argc,char** argv) {\nconst std::filesystem::path expected{argv[1]};\n#endif\n'
             'if(argc!=2)return 2;\n'+body,encoding='utf-8')
         binary=binary_dir/('probe'if sys.platform=='darwin'else'probe.exe')
         includes=[source,source/'src',source/check.get('includeDirectory','.')]
