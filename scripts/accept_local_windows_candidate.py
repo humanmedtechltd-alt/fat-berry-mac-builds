@@ -43,6 +43,10 @@ def accept(product,index,root,log,checkpoint):
         'inputIndexSha256':__import__('os').environ['INPUT_INDEX_SHA256'],'auditedBuildInputSha256':product['buildInputSha256'],
         'runtimeIncluded':bool(product['runtimeImports']),
         'validation':{**proof['validation'],'moduleHash':'passed','currentBuildInputsMatch':True,**installation,'activation':'pending'}}
+    if product.get('ownerApprovedBinary'):
+        record['ownerApprovedBinary']=product['ownerApprovedBinary']
+        record['validation'].pop('currentBuildInputsMatch')
+        record['validation'].update(ownerApprovedModuleHash='passed',currentSourceCompilationClaim=False)
     (final.parent/'release.json').write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
     checkpoint('upload')
     for file in final.parent.iterdir():transfer('put',output_prefix('windows',slug)+'/'+file.name,file)
