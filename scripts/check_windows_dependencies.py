@@ -54,12 +54,12 @@ def main():
             run('powershell.exe','-NoProfile','-Command',"$ErrorActionPreference='Stop';$s=Get-Service docker;if($s.Status -ne 'Running'){Start-Service docker;$s.WaitForStatus('Running',[TimeSpan]::FromSeconds(30))}")
             run('docker','pull',image)
             name='fatberry-dependencies-'+os.environ['GITHUB_RUN_ID']
-            run('docker','create','--name',name,'--network','none','--isolation','process','--mount','type=bind,source='+str(payload)+',target=C:\acceptance',image,'cmd.exe','/c','ping -t 127.0.0.1 > nul')
+            run('docker','create','--name',name,'--network','none','--isolation','process','--mount','type=bind,source='+str(payload)+r',target=C:\acceptance',image,'cmd.exe','/c','ping -t 127.0.0.1 > nul')
             try:
                 run('docker','start',name)
-                run('docker','exec','-e','FATBERRY_DEPENDENCY_PHASE=before',name,'powershell.exe','-NoProfile','-File','C:\acceptance\check.ps1')
-                run('docker','exec',name,'powershell.exe','-NoProfile','-Command',"$p=Start-Process C:\acceptance\VC_redist.x64.exe -ArgumentList '/install','/quiet','/norestart' -Wait -PassThru;if($p.ExitCode -notin @(0,3010)){throw 'Microsoft runtime installation failed'}")
-                run('docker','exec','-e','FATBERRY_DEPENDENCY_PHASE=after',name,'powershell.exe','-NoProfile','-File','C:\acceptance\check.ps1')
+                run('docker','exec','-e','FATBERRY_DEPENDENCY_PHASE=before',name,'powershell.exe','-NoProfile','-File',r'C:\acceptance\check.ps1')
+                run('docker','exec',name,'powershell.exe','-NoProfile','-Command',r"$p=Start-Process C:\acceptance\VC_redist.x64.exe -ArgumentList '/install','/quiet','/norestart' -Wait -PassThru;if($p.ExitCode -notin @(0,3010)){throw 'Microsoft runtime installation failed'}")
+                run('docker','exec','-e','FATBERRY_DEPENDENCY_PHASE=after',name,'powershell.exe','-NoProfile','-File',r'C:\acceptance\check.ps1')
             finally:run('docker','rm','-f',name,timeout=60)
         before={p['slug']:p for p in json.loads((payload/'before.json').read_text(encoding='utf-8-sig'))}
         after={p['slug']:p for p in json.loads((payload/'after.json').read_text(encoding='utf-8-sig'))}
