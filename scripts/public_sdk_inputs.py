@@ -16,6 +16,26 @@ def contained(root, relative):
     return destination
 
 
+def restore_captured_framework_objects(source, run):
+    """Repair portable Git metadata without recapturing private product bytes."""
+    lock=json.loads((source/'third-party/source-lock.json').read_text(encoding='utf-8-sig'))
+    required={'iPlug2','vst3sdk','clap','clap-helpers'}
+    selected=[item for item in lock['sources']if item['name']in required]
+    if {item['name']for item in selected}!=required:raise ValueError('Missing pinned framework source')
+    for item in selected:
+        url=item['repository_url'];revision=item['revision'];destination=contained(source,item['destination'])
+        if(not re.fullmatch(r'https://github\.com/(?!humanmedtechltd-alt/)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?',url)
+                or not re.fullmatch('[0-9a-f]{40}',revision)):
+            raise ValueError('Framework object restoration requires an exact public SDK pin')
+        actual=subprocess.check_output(['git','-C',str(destination),'rev-parse','HEAD'],text=True,timeout=30).strip()
+        if actual!=revision:raise ValueError('Captured SDK history differs from its source lock')
+        # --refetch supplies the pinned tree's missing original blobs even
+        # when the shallow commit is already present. No checkout/reset occurs:
+        # the captured working files and reviewed patches remain untouched.
+        run('git','-c','protocol.file.allow=never','-C',str(destination),'fetch','--quiet',
+            '--refetch','--no-filter','--depth=1','--no-write-fetch-head',url,revision)
+
+
 def restore(source, expected, run):
     raw = (source / "FATBERRY-SOURCE-SNAPSHOT.json").read_bytes()
     if hashlib.sha256(raw).hexdigest() != expected:
