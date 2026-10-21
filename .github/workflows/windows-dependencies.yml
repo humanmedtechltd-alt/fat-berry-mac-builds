@@ -1,0 +1,42 @@
+name: Private existing Windows dependency assessment
+run-name: "${{ github.workflow }} | ${{ inputs.index_sha256 }}"
+on:
+  workflow_dispatch:
+    inputs:
+      index_sha256:
+        description: Immutable private original-module index SHA-256
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    env:
+      FATBERRY_PRIVATE_ASSET_TOKEN: ${{ secrets.FATBERRY_PRIVATE_ASSET_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure restricted private transfer
+        env:
+          RUNNER_SSH_KEY: ${{ secrets.RUNNER_SSH_KEY }}
+          RUNNER_KNOWN_HOSTS: ${{ secrets.RUNNER_KNOWN_HOSTS }}
+        shell: pwsh
+        run: |
+          $sshDir = Join-Path $HOME '.ssh'
+          New-Item -ItemType Directory -Force -Path $sshDir | Out-Null
+          [IO.File]::WriteAllText((Join-Path $sshDir 'fatberry-build'), $env:RUNNER_SSH_KEY + "`n")
+          [IO.File]::WriteAllText((Join-Path $sshDir 'known_hosts'), $env:RUNNER_KNOWN_HOSTS + "`n")
+          icacls (Join-Path $sshDir 'fatberry-build') /inheritance:r /grant:r "${env:USERNAME}:(R)" | Out-Null
+      - name: Compare actual original module loading before and after the runtime
+        env:
+          INPUT_INDEX_SHA256: ${{ inputs.index_sha256 }}
+          RUNNER_SSH_HOST: ${{ secrets.RUNNER_SSH_HOST }}
+          FATBERRY_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python scripts/check_windows_dependencies.py
+      - name: Remove transfer key
+        if: always()
+        shell: pwsh
+        run: |
+          $key = Join-Path $HOME '.ssh/fatberry-build'
+          if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Force }
