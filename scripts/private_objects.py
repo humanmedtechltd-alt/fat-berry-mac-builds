@@ -8,9 +8,25 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from types import SimpleNamespace
 
 REPOSITORY='humanmedtechltd-alt/fat-berry-release-tooling'
 CHUNK_BYTES=1024**3
+
+class SliceReader:
+    def __init__(self,path,offset,size):
+        self.stream=Path(path).open('rb');self.stream.seek(offset);self.left=size
+    def read(self,count=-1):
+        value=self.stream.read(self.left if count<0 else min(count,self.left));self.left-=len(value);return value
+    def __enter__(self):return self
+    def __exit__(self,*args):self.stream.close()
+
+class FileSlice:
+    def __init__(self,path,offset,size):self.path=path;self.offset=offset;self.size=size
+    def stat(self):return SimpleNamespace(st_size=self.size)
+    def open(self,mode):
+        if mode!='rb':raise ValueError('Private source slices are read-only')
+        return SliceReader(self.path,self.offset,self.size)
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs):return None
@@ -88,19 +104,20 @@ class Store:
         return {'assetId':value['id'],'sha256':sha,'bytes':size}
 
     def upload(self,file):
-        file=Path(file);self.private();parts=[];whole=hashlib.sha256()
-        with tempfile.TemporaryDirectory(prefix='private-object-',dir=file.parent)as directory,file.open('rb')as source:
-            while True:
-                path=Path(directory)/'part.bin';size=0;part_hash=hashlib.sha256()
-                with path.open('wb')as output:
-                    while size<CHUNK_BYTES:
-                        block=source.read(min(1024**2,CHUNK_BYTES-size))
-                        if not block:break
-                        output.write(block);whole.update(block);part_hash.update(block);size+=len(block)
-                if not size:break
-                parts.append(self.asset(path,part_hash.hexdigest()));path.unlink()
+        file=Path(file);before=file.stat();self.private();parts=[];whole=hashlib.sha256()
+        # Upload bounded read-only views. Copying every chunk beside the source
+        # needlessly consumed another GiB and interrupted otherwise ready jobs.
+        for offset in range(0,before.st_size,CHUNK_BYTES):
+            size=min(CHUNK_BYTES,before.st_size-offset);view=FileSlice(file,offset,size);part_hash=hashlib.sha256();read=0
+            with view.open('rb')as source:
+                while block:=source.read(1024**2):
+                    whole.update(block);part_hash.update(block);read+=len(block)
+            if read!=size:raise ValueError('Private source changed while hashing')
+            parts.append(self.asset(view,part_hash.hexdigest()))
+            after=file.stat()
+            if(before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):raise ValueError('Private source changed during upload')
         if not parts:raise ValueError('Empty private release object')
-        return {'schemaVersion':1,'repository':REPOSITORY,'sizeBytes':file.stat().st_size,'sha256':whole.hexdigest(),'parts':parts}
+        return {'schemaVersion':1,'repository':REPOSITORY,'sizeBytes':before.st_size,'sha256':whole.hexdigest(),'parts':parts}
 
     def download(self,location,destination):
         if location.get('repository')!=REPOSITORY or location.get('schemaVersion')!=1:raise ValueError('Private object repository differs')

@@ -15,6 +15,9 @@ import uuid
 def host_checks_for_format(checks, plugin_format):
     """Include explicitly contracted wrapper parameters in complete images."""
     current = dict(checks)
+    program_identity=current.pop('stateProgramRestoresAsByFormat',{})
+    if plugin_format in program_identity:
+        current['stateProgramRestoresAs']=program_identity[plugin_format]
     additions = current.pop('factoryImageFormatParameters', {}).get(plugin_format, {})
     state_additions = current.pop('stateImageFormatParameters', {}).get(plugin_format, {})
     if additions and state_additions:
