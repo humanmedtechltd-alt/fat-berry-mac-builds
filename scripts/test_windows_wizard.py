@@ -159,7 +159,7 @@ def validate_wizard(installer: Path, work: Path, log) -> dict:
             time.sleep(0.1)
         cancellation_exit = process.wait(timeout=30)
         if not confirmed_cancellation(cancellation_exit, (work / 'wizard.log').read_text(encoding='utf-8-sig', errors='replace')):
-            raise ValueError("Wizard cancellation crashed or did not report user cancellation")
+            raise ValueError(f"Wizard cancellation crashed or did not report user cancellation (launcher exit {cancellation_exit})")
         if dimensions != (820, 560):
             raise ValueError(f"The actual wizard client is {dimensions}; expected (820, 560)")
         return {"interactiveWizardOpenAndCancel": "passed", "wizardCancellationExitCode": cancellation_exit}
