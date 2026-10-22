@@ -68,4 +68,11 @@ class WindowsPayloadTests(unittest.TestCase):
         self.assertNotIn('filesandordirs; Name: "{commonappdata}',result)
         self.assertEqual(preserve_customer_directories(result,'Plugin.vst3'),result)
 
+    def test_reinstall_preserves_customer_files_beside_shared_factory_presets(self):
+        from installer_script import preserve_customer_directories
+        section='[InstallDelete]\nType: filesandordirs; Name: "{commonappdata}\\VST3 Presets\\Vendor\\Product";\n'
+        result=preserve_customer_directories(section,'Plugin.vst3')
+        self.assertIn('Type: dirifempty;',result)
+        self.assertNotIn('filesandordirs',result)
+
 if __name__=='__main__':unittest.main()

@@ -6,7 +6,7 @@ from windows_payload import archive_path
 
 def preserve_customer_directories(section: str, bundle: str) -> str:
     """Inno removes its own recorded files; shared preset folders must survive."""
-    if not section.lstrip().lower().startswith('[uninstalldelete]'):
+    if not section.lstrip().lower().startswith(('[uninstalldelete]', '[installdelete]')):
         return section
     lines=[]
     for line in section.splitlines():
