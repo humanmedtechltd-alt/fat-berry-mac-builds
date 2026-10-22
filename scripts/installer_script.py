@@ -30,7 +30,7 @@ def write_script(product: dict, runtime: dict, tooling: Path, design: Path, payl
              define("Vst3BundleName", product["vst3Bundle"]), define("OutputSlug", product["slug"]),
              define("FbKitDir", str(kit)), define("FbDesignDir", str(design))]
     lines += ["[Setup]", *product["setup"], f"OutputDir={final.parent}", "OutputBaseFilename=installer-win",
-              "Compression=lzma2", "SolidCompression=yes", "PrivilegesRequired=admin", f"MinVersion={product['minimumWindows']}"]
+              "Compression=lzma2/fast", "SolidCompression=yes", "PrivilegesRequired=admin", f"MinVersion={product['minimumWindows']}"]
     lines += [f'#include "{kit / "FatBerryWizard.isi"}"', "[Files]"]
     for entry in product["fileEntries"]:
         lines.append(entry.replace("@PAYLOAD@", str(payload)))
