@@ -8,6 +8,14 @@ import subprocess
 import time
 
 
+def confirmed_cancellation(exit_code, setup_log):
+    # Some released Inno launchers return zero after their child Setup exits.
+    # Require the actual confirmation/deinitialization trail, never just zero.
+    return exit_code in (0, 2) and all(text in setup_log for text in (
+        'Exit Setup?', 'User chose Yes.', 'Deinitializing Setup.')) and not any(
+        text in setup_log for text in ('Installation process succeeded.', '-- Installation process starting --'))
+
+
 def validate_wizard(installer: Path, work: Path, log) -> dict:
     if (os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_OS") != "Windows"
             or os.environ.get("FATBERRY_RUNNER_ENVIRONMENT") != "github-hosted"):
@@ -149,11 +157,12 @@ def validate_wizard(installer: Path, work: Path, log) -> dict:
             refresh_parents()
             user.EnumWindows(confirm_cancel, 0)
             time.sleep(0.1)
-        if process.wait(timeout=30) != 2:
+        cancellation_exit = process.wait(timeout=30)
+        if not confirmed_cancellation(cancellation_exit, (work / 'wizard.log').read_text(encoding='utf-8-sig', errors='replace')):
             raise ValueError("Wizard cancellation crashed or did not report user cancellation")
         if dimensions != (820, 560):
             raise ValueError(f"The actual wizard client is {dimensions}; expected (820, 560)")
-        return {"interactiveWizardOpenAndCancel": "passed"}
+        return {"interactiveWizardOpenAndCancel": "passed", "wizardCancellationExitCode": cancellation_exit}
     finally:
         if process.poll() is None:
             subprocess.run(["taskkill.exe", "/PID", str(process.pid), "/T", "/F"], stdout=log, stderr=log, timeout=30, check=False)
