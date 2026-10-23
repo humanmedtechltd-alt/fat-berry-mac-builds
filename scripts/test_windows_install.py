@@ -202,7 +202,8 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
             raise ValueError('Installer lifecycle removed or changed customer-created presets or unrelated content')
     if before_scan is not None:
         before_scan(bundle)
-    run(str(pluginval), "--strictness-level", "5", "--validate", str(bundle), timeout=600)
+    from windows_pluginval_command import arguments as pluginval_arguments
+    run(*pluginval_arguments(product,pluginval,bundle,production_editor_already_tested=before_scan is not None), timeout=600)
     run(str(installer), *options, f"/LOG={work / 'reinstall.log'}", permitted=(0, 3010), timeout=1200)
     verify()
     verify_customer_content()
