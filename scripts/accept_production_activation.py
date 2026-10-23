@@ -44,6 +44,7 @@ def plugin_validation_timeout(checks):
     # Every image has deliberate GUI-dispatch waits plus eight audio blocks.
     # A large authored bank must get time for every image on each architecture.
     count = sum(len(checks.get(key, [])) for key in ('factoryProgramNames', 'factoryParameterPresets', 'parameterStateImages'))
+    count += 2*len(checks.get('macIPlugFactoryFiles',[]))
     return 180 + count
 
 
