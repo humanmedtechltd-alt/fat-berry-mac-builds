@@ -11,6 +11,7 @@ import uuid
 import winreg
 
 from build_product import digest
+from windows_timeout_stacks import capture as capture_timeout_stacks
 
 
 def validate_install(product: dict, installer: Path, work: Path, log, pluginval: Path, before_scan=None) -> dict:
@@ -26,6 +27,7 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
         try:
             result = process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
+            capture_timeout_stacks(process.pid, work, log)
             subprocess.run(["taskkill.exe", "/PID", str(process.pid), "/T", "/F"], stdout=log, stderr=log, timeout=30, check=False)
             process.wait(timeout=30)
             raise
@@ -203,7 +205,7 @@ def validate_install(product: dict, installer: Path, work: Path, log, pluginval:
     if before_scan is not None:
         before_scan(bundle)
     from windows_pluginval_command import arguments as pluginval_arguments
-    run(*pluginval_arguments(product,pluginval,bundle,production_editor_already_tested=before_scan is not None), timeout=600)
+    run(*pluginval_arguments(product,pluginval,bundle,production_editor_already_tested=before_scan is not None), timeout=300 if product['slug']=='inflated-ego' else 600)
     run(str(installer), *options, f"/LOG={work / 'reinstall.log'}", permitted=(0, 3010), timeout=1200)
     verify()
     verify_customer_content()
