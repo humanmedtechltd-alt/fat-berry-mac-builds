@@ -11,7 +11,7 @@ import urllib.request
 from types import SimpleNamespace
 
 REPOSITORY='humanmedtechltd-alt/fat-berry-release-tooling'
-CHUNK_BYTES=1024**3
+CHUNK_BYTES=128*1024**2
 
 class SliceReader:
     def __init__(self,path,offset,size):
@@ -81,7 +81,7 @@ class Store:
     def asset(self,file,sha):
         self.private()
         size=file.stat().st_size
-        if not 0<size<2*CHUNK_BYTES:raise ValueError('Private object exceeds release asset bounds')
+        if not 0<size<2*1024**3:raise ValueError('Private object exceeds release asset bounds')
         release=self.release(sha);name='sha256-'+sha+'.bin'
         def existing():
             page=1
