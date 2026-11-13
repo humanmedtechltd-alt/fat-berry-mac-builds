@@ -23,6 +23,25 @@ if [ -d /Applications/Xcode-16.4.app ]; then export DEVELOPER_DIR=/Applications/
   for mode in memory file; do
     "probe-$slug/page_probe" "$mode" "$page" "probe-$slug/$mode.png" | tee "probe-$slug/$mode.json"
   done
+  # The builder's login keychain is locked in a remote session, so the licence panel would only say the device
+  # identity cannot be stored. A customer's login keychain is unlocked: give the probe an unlocked default
+  # keychain for the run, then put the user's keychain settings back.
+  keychain="$HOME/Library/Keychains/fb-probe.keychain-db"
+  old_default=$(security default-keychain | tr -d ' "')
+  restore_keychain() {
+    security default-keychain -s "$old_default" || true
+    security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db" || true
+    rm -f "$keychain"
+  }
+  trap restore_keychain EXIT
+  rm -f "$keychain"
+  security create-keychain -p fb-probe "$keychain"
+  security set-keychain-settings "$keychain"
+  security unlock-keychain -p fb-probe "$keychain"
+  security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+  security default-keychain -s "$keychain"
   "probe-$slug/au_view_probe" "$au_type" "$au_subtype" "$au_manufacturer" "probe-$slug/au-window.png" | tee "probe-$slug/au-view.txt"
+  restore_keychain
+  trap - EXIT
   date -u; echo "SESSION DONE $slug"
 } >"$base/session-$slug.log" 2>&1
