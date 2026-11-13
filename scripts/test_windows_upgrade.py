@@ -144,8 +144,15 @@ def test(product, installer, pluginval, results, log):
     roots = [Path(constants["app"]).resolve()] + ([resolve(setup["UninstallFilesDir"]).resolve()] if setup.get("UninstallFilesDir") else [])
     if not any(uninstaller.is_relative_to(r) for r in roots) or not uninstaller.is_file():
         raise ValueError("The registered uninstaller is outside the product's folders")
-    return {"upgradeInstall": "passed", "installedBefore": before, "installedPayloadHashes": "passed",
-            "pluginval": "passed-x64-level5", "uninstallEntry": "passed", "uninstall": "not-run-developer-pc",
+    # A product that was not installed before the test is removed again, which also tests its uninstaller.
+    fresh = before["identical"] == 0 and before["different"] == 0
+    if fresh:
+        run(uninstaller, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", permitted=(0, 3010))
+        if any(path.exists() for path in installed):
+            raise ValueError("Uninstall left product payload files installed")
+    return {"upgradeInstall" if not fresh else "cleanInstall": "passed", "installedBefore": before,
+            "installedPayloadHashes": "passed", "pluginval": "passed-x64-level5", "uninstallEntry": "passed",
+            "uninstall": "passed" if fresh else "not-run-developer-pc",
             "webView2Bootstrap": "skipped-runtime-present-developer-pc" if webview_before else "ran-from-absent",
             "webView2BeforeTest": webview_before, "webView2InstalledVersions": webview_after,
             "runtimeBeforeTest": [n for n, present in runtime_before.items() if present],

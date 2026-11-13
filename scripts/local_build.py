@@ -102,15 +102,29 @@ def main() -> None:
             raise ValueError("Unknown transfer operation")
 
     build_product.transfer = transfer
-    original_restore = public_sdk_inputs.restore
+    import private_file_inputs
     change = product.get("sourceChange")
 
-    def restore(source, expected, run):
-        if change:
+    def ensure_change(source, expected):
+        # build_product checks the manifest first in private_file_inputs.restore, then in
+        # public_sdk_inputs.restore: apply the recorded change before the first check, once.
+        manifest = Path(source) / "FATBERRY-SOURCE-SNAPSHOT.json"
+        if change and sha256(manifest.read_bytes()) != expected:
             apply_change(Path(source), contained(inputs, change), expected)
-        return original_restore(source, expected, run)
 
-    public_sdk_inputs.restore = restore
+    original_private = private_file_inputs.restore
+    original_public = public_sdk_inputs.restore
+
+    def restore_private(source, expected, entries, transfer_):
+        ensure_change(source, expected)
+        return original_private(source, expected, entries, transfer_)
+
+    def restore_public(source, expected, run):
+        ensure_change(source, expected)
+        return original_public(source, expected, run)
+
+    private_file_inputs.restore = restore_private
+    public_sdk_inputs.restore = restore_public
     sys.argv = [str(HERE / "build_product.py"), slug]
     build_product.main()
 
