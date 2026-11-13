@@ -1,0 +1,25 @@
+# Codemagic (free personal minutes on Apple M2 Macs). Started by hand with
+# "Enable SSH/VNC access": the job only prepares and holds the Mac, and the
+# build is run over that session with scripts/local_build.py, so no private
+# input or credential is stored in Codemagic. GitHub Actions are not used.
+workflows:
+  mac-session:
+    name: Mac build session
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: 16.4
+    scripts:
+      - name: Report the toolchain
+        script: |
+          sw_vers
+          xcodebuild -version
+          python3 --version
+          arch -x86_64 /usr/bin/true && echo "Rosetta available"
+          df -h "$HOME" | tail -1
+      - name: Hold the Mac for the remote build (ends when ~/session-done exists)
+        script: |
+          for i in $(seq 1 690); do
+            [ -f "$HOME/session-done" ] && exit 0
+            sleep 10
+          done
