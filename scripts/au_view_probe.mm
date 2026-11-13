@@ -11,6 +11,7 @@
 #import <AudioUnit/AUCocoaUIView.h>
 #import <Cocoa/Cocoa.h>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 static OSType fourcc(const char* s) {
@@ -68,11 +69,13 @@ int main(int argc, char** argv) {
     spin(8.0);
     std::string tree;
     dump(window.contentView, 0, tree);
-    CGImageRef image = CGWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow,
-                                               (CGWindowID)window.windowNumber, kCGWindowImageBoundsIgnoreFraming);
+    // AppKit's own capture of the content view (what the views draw; macOS 15 removed CGWindowListCreateImage),
+    // plus the system screenshot tool for the on-screen window as a second record.
+    NSView* content = window.contentView;
     double lit = -1;
-    if (image) {
-      NSBitmapImageRep* rep = [[NSBitmapImageRep alloc] initWithCGImage:image];
+    NSBitmapImageRep* rep = [content bitmapImageRepForCachingDisplayInRect:content.bounds];
+    if (rep) {
+      [content cacheDisplayInRect:content.bounds toBitmapImageRep:rep];
       long total = 0, bright = 0;
       for (NSInteger y = 0; y < rep.pixelsHigh; y += 4)
         for (NSInteger x = 0; x < rep.pixelsWide; x += 4) {
@@ -82,8 +85,10 @@ int main(int argc, char** argv) {
         }
       lit = total ? double(bright) / total : 0;
       [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(argv[4]) atomically:YES];
-      CGImageRelease(image);
     }
+    std::string screen = std::string("/usr/sbin/screencapture -x -o -l ") + std::to_string((long)window.windowNumber) +
+                         " '" + argv[4] + ".screen.png'";
+    std::system(screen.c_str());
     std::printf("view class %s, size %.0fx%.0f, non-black share %.3f\n%s",
                 NSStringFromClass([view class]).UTF8String, view.frame.size.width, view.frame.size.height, lit, tree.c_str());
     [view removeFromSuperview];  // iPlug2 closes the editor here, as Logic does when the window closes.
